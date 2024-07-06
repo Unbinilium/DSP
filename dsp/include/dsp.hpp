@@ -10,8 +10,8 @@
 #include <cstdint>
 #include <initializer_list>
 #include <type_traits>
-#include <vector>
 #include <utility>
+#include <vector>
 
 #if BUILD_TESTS
     #include <unordered_map>
@@ -22,7 +22,7 @@ namespace dsp {
 namespace constants {
 
 static constexpr double EPS = 1.0e-20;
-static constexpr double PI  = 3.14159265358979323846;
+static constexpr double PI  = 3.141592653589793238462643383279502884197169399375105820974944;
 
 }  // namespace constants
 
@@ -349,8 +349,8 @@ template <typename T = double,
           typename Container_1,
           typename Container_2,
           typename Container_3,
-          std::enable_if_t<is_lfilter_container_fine_v<Container_1, T> && is_lfilter_container_fine_v<Container_2, T> &&
-                             is_lfilter_container_fine_v<Container_3, T>,
+          std::enable_if_t<std::is_floating_point_v<T> && is_lfilter_container_fine_v<Container_1, T> &&
+                             is_lfilter_container_fine_v<Container_2, T> && is_lfilter_container_fine_v<Container_3, T>,
                            bool> = true>
 decltype(auto) lfilter(const Container_1& b, const Container_2& a, const Container_3& x) {
     lfilter_ctx_t<T> ctx{};
@@ -362,7 +362,8 @@ decltype(auto) lfilter(const Container_1& b, const Container_2& a, const Contain
 template <typename T = double,
           typename Container_1,
           typename Container_2,
-          std::enable_if_t<is_lfilter_container_fine_v<Container_1, T> && is_lfilter_container_fine_v<Container_2, T>,
+          std::enable_if_t<std::is_floating_point_v<T> && is_lfilter_container_fine_v<Container_1, T> &&
+                             is_lfilter_container_fine_v<Container_2, T>,
                            bool> = true>
 decltype(auto) lfilter(const Container_1& b, T a, const Container_2& x) {
     std::vector<T> a_ = {a};
