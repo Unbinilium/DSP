@@ -626,7 +626,6 @@ void test_lfilter() {
         assert(r.size() == expected.size());
         for (size_t i = 0; i < r.size(); ++i) {
             double diff = std::abs(r[i] - expected[i]);
-            // std::cout << diff << " ";
             assert(diff < 1e-8);
         }
     }
