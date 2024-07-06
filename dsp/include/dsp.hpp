@@ -315,18 +315,15 @@ void lfilter(lfilter_ctx_t<T>& ctx, const Container_1& b, const Container_2& a, 
     auto&      y  = ctx.result;
     if (y.size() != nx) {
         y.resize(nx);
-#if ENABLE_ASSERT
-        assert(y.size() == nx);
-#endif
-        for (size_t i = 0; i < nx; ++i) {
-            y[i] = static_cast<T>(0.0);
-        }
+        std::fill(y.begin(), y.end(), static_cast<T>(0.0));
     }
 
     {
         const auto nb = b.size();
         const auto na = a.size();
-
+#if ENABLE_ASSERT
+        assert(y.size() == nx);
+#endif
         for (size_t i = 0; i < nx; ++i) {
             const auto in = i + 1;
             const auto be = std::min(nb, in);
@@ -368,6 +365,50 @@ template <typename T = double,
 decltype(auto) lfilter(const Container_1& b, T a, const Container_2& x) {
     std::vector<T> a_ = {a};
     return lfilter<T>(b, a_, x);
+}
+
+template <typename T> struct paa_ctx_t {
+    std::vector<T> result;
+};
+
+template <typename T = double,
+          typename Container,
+          std::enable_if_t<std::is_floating_point_v<T> && has_size_method_with_size_t_v<Container> &&
+                             has_index_access_operator_v<Container> &&
+                             has_contained_type_nothrow_convertible_to_v<Container, T>,
+                           bool> = true>
+void paa(paa_ctx_t<T>& ctx, const Container& ts, size_t segments) {
+    const auto n = ts.size();
+    auto&      y = ctx.result;
+    if (y.size() != segments) {
+        y.resize(segments);
+        std::fill(y.begin(), y.end(), static_cast<T>(0.0));
+    }
+
+    {
+        for (size_t i = 0; i < segments; ++i) {
+            const size_t start = (n * i) / segments;
+            const size_t end   = (n * (i + 1)) / segments;
+            T            sum   = 0.0;
+            for (size_t j = start; (j < end) & (j < n); ++j) {
+                sum += ts[j];
+            }
+            y[i] = sum / static_cast<T>(end - start);
+        }
+    }
+}
+
+template <typename T = double,
+          typename Container,
+          std::enable_if_t<std::is_floating_point_v<T> && has_size_method_with_size_t_v<Container> &&
+                             has_index_access_operator_v<Container> &&
+                             has_contained_type_nothrow_convertible_to_v<Container, T>,
+                           bool> = true>
+decltype(auto) paa(const Container& ts, size_t segments) {
+    paa_ctx_t<T> ctx;
+    paa(ctx, ts, segments);
+    const auto r = std::move(ctx.result);
+    return r;
 }
 
 namespace tests {
@@ -637,6 +678,63 @@ void test_lfilter() {
         for (size_t i = 0; i < r.size(); ++i) {
             double diff = std::abs(r[i] - expected[i]);
             assert(diff < 1e-6);
+        }
+    }
+}
+
+void test_paa() {
+    std::vector<double> data = {
+      0.,          0.84147098,  0.90929743,  0.14112001,  -0.7568025,  -0.95892427, -0.2794155,  0.6569866,
+      0.98935825,  0.41211849,  -0.54402111, -0.99999021, -0.53657292, 0.42016704,  0.99060736,  0.65028784,
+      -0.28790332, -0.96139749, -0.75098725, 0.14987721,  0.91294525,  0.83665564,  -0.00885131, -0.8462204,
+      -0.90557836, -0.13235175, 0.76255845,  0.95637593,  0.27090579,  -0.66363388, -0.98803162, -0.40403765,
+      0.55142668,  0.99991186,  0.52908269,  -0.42818267, -0.99177885, -0.64353813, 0.29636858,  0.96379539,
+      0.74511316,  -0.15862267, -0.91652155, -0.83177474, 0.01770193,  0.85090352,  0.90178835,  0.12357312,
+      -0.76825466, -0.95375265, -0.26237485, 0.67022918,  0.98662759,  0.39592515,  -0.55878905, -0.99975517,
+      -0.521551,   0.43616476,  0.99287265,  0.63673801,  -0.30481062, -0.96611777, -0.7391807,  0.1673557,
+      0.92002604,  0.82682868,  -0.02655115, -0.85551998, -0.89792768, -0.11478481, 0.77389068,  0.95105465,
+      0.25382336,  -0.67677196, -0.98514626, -0.38778164, 0.56610764,  0.99952016,  0.51397846,  -0.44411267,
+      -0.99388865, -0.62988799, 0.31322878,  0.96836446,  0.73319032,  -0.17607562, -0.92345845, -0.82181784,
+      0.0353983,   0.86006941,  0.89399666,  0.10598751,  -0.77946607, -0.94828214, -0.24525199, 0.68326171,
+      0.98358775,  0.37960774,  -0.57338187, -0.99920683,
+    };
+    std::vector<double> expected_7 = {
+      0.02105659,
+      0.0975727,
+      0.00562705,
+      -0.12440166,
+      0.0606417,
+      0.08440562,
+      -0.10166878,
+    };
+    std::vector<double> expected_10 = {
+      0.19552095,
+      -0.18699328,
+      0.11828053,
+      -0.01149837,
+      -0.09898462,
+      0.17760873,
+      -0.19906823,
+      0.15645624,
+      -0.06348773,
+      -0.04991475,
+    };
+
+    {
+        auto r = paa<double>(data, 7);
+        assert(r.size() == expected_7.size());
+        for (size_t i = 0; i < r.size(); ++i) {
+            double diff = std::abs(r[i] - expected_7[i]);
+            assert(diff < 1e-8);
+        }
+    }
+
+    {
+        auto r = paa<float>(data, 10);
+        assert(r.size() == expected_10.size());
+        for (size_t i = 0; i < r.size(); ++i) {
+            double diff = std::abs(r[i] - expected_10[i]);
+            assert(diff < 1e-7);
         }
     }
 }

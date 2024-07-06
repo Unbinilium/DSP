@@ -13,11 +13,22 @@ int main() {
     std::vector<double> data(1024);
     std::generate(data.begin(), data.end(), [n = 0]() mutable { return std::sin(n++); });
 
-    auto w = firwin(100, 0.5);
-    auto r = lfilter(w, 1.0, data);
+    auto p = [](const auto& v) {
+        for (const auto& x : v) {
+            std::cout << x << " ";
+        }
+        std::cout << endl;
+    };
 
-    for (const auto& x : r) {
-        std::cout << x << " ";
+    {
+        auto w = firwin(100, 0.5);
+        auto r = lfilter(w, 1.0, data);
+        p(r);
+    }
+
+    {
+        auto r = paa(data, 10);
+        p(r);
     }
 }
 ```
