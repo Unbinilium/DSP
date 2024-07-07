@@ -411,6 +411,60 @@ decltype(auto) paa(const Container& ts, size_t segments) {
     return r;
 }
 
+template <
+  typename T = double,
+  typename Container,
+  std::enable_if_t<has_iterator_support_v<Container> && has_contained_type_nothrow_convertible_to_v<Container, T>,
+                   bool> = true>
+void minmax_scale(Container& v, T lower, T upper) {
+    const auto [min, max] = std::minmax_element(v.begin(), v.end());
+    if (min == v.end() || max == v.end()) {
+        return;
+    }
+
+    const auto min_v = *min;
+    const auto diff  = *max - min_v;
+    const auto scale = (upper - lower) / diff;
+    for (auto& vi : v) {
+        vi = (vi - min_v) * scale + lower;
+    }
+}
+
+template <typename T> struct minmax_scale_ctx_t {
+    std::vector<T> result;
+};
+
+template <
+  typename T,
+  typename Container,
+  std::enable_if_t<has_iterator_support_v<Container> && has_contained_type_nothrow_convertible_to_v<Container, T>,
+                   bool> = true>
+void minmax_scale(minmax_scale_ctx_t<T>& ctx, const Container& v, T lower, T upper) {
+    const auto n = v.size();
+    auto&      y = ctx.result;
+    if (y.size() != n) {
+        y.resize(n);
+    }
+    if constexpr (std::is_same_v<decltype(ctx.result), Container>) {
+        y = v;
+    } else {
+        std::copy(v.begin(), v.end(), y.begin());
+    }
+    minmax_scale(y, lower, upper);
+}
+
+template <
+  typename T = double,
+  typename Container,
+  std::enable_if_t<has_iterator_support_v<Container> && has_contained_type_nothrow_convertible_to_v<Container, T>,
+                   bool> = true>
+decltype(auto) minmax_scale(const Container& v, T lower, T upper) {
+    minmax_scale_ctx_t<T> ctx;
+    minmax_scale(ctx, v, lower, upper);
+    const auto r = std::move(ctx.result);
+    return r;
+}
+
 namespace tests {
 
 #ifdef BUILD_TESTS
@@ -735,6 +789,62 @@ void test_paa() {
         for (size_t i = 0; i < r.size(); ++i) {
             double diff = std::abs(r[i] - expected_10[i]);
             assert(diff < 1e-7);
+        }
+    }
+}
+
+void test_minmax_scale() {
+    std::vector<double> data = {
+      1.,          0.54030231,  -0.41614684, -0.9899925,  -0.65364362, 0.28366219,  0.96017029,  0.75390225,
+      -0.14550003, -0.91113026, -0.83907153, 0.0044257,   0.84385396,  0.90744678,  0.13673722,  -0.75968791,
+      -0.95765948, -0.27516334, 0.66031671,  0.98870462,  0.40808206,  -0.54772926, -0.99996083, -0.53283302,
+      0.42417901,  0.99120281,  0.64691932,  -0.29213881, -0.96260587, -0.74805753, 0.15425145,  0.91474236,
+      0.83422336,  -0.01327675, -0.84857027, -0.90369221, -0.12796369, 0.76541405,  0.95507364,  0.26664293,
+      -0.66693806, -0.98733928, -0.39998531, 0.5551133,   0.99984331,  0.52532199,  -0.43217794, -0.99233547,
+      -0.64014434, 0.30059254,  0.96496603,  0.7421542,   -0.16299078, -0.91828279, -0.82930983, 0.02212676,
+      0.85322011,  0.89986683,  0.11918014,  -0.77108022, -0.95241298, -0.25810164, 0.67350716,  0.98589658,
+      0.39185723,  -0.56245385, -0.99964746, -0.5177698,  0.44014302,  0.99339038,  0.6333192,   -0.30902273,
+      -0.96725059, -0.73619272, 0.17171734,  0.92175127,  0.82433133,  -0.03097503, -0.85780309, -0.89597095,
+      -0.11038724, 0.77668598,  0.9496777,   0.24954012,  -0.6800235,  -0.98437664, -0.38369844, 0.56975033,
+      0.99937328,  0.51017704,  -0.44807362, -0.99436746, -0.62644445, 0.3174287,   0.96945937,  0.73017356,
+      -0.18043045, -0.92514754, -0.81928825, 0.03982088,
+    };
+    std::vector<double> expected = {
+      1.00000000e+00, 7.70146651e-01, 2.91912713e-01, 4.98426252e-03, 1.73161994e-01, 6.41824077e-01, 9.80084753e-01,
+      8.76948717e-01, 4.27238765e-01, 4.44161522e-02, 8.04462243e-02, 5.02203099e-01, 9.21925450e-01, 9.53722484e-01,
+      5.68360155e-01, 1.20138810e-01, 2.11510873e-02, 3.62405843e-01, 8.30155027e-01, 9.94352198e-01, 7.04035234e-01,
+      2.26120212e-01, 0.00000000e+00, 2.33568478e-01, 7.12083864e-01, 9.95601320e-01, 8.23456203e-01, 3.53917941e-01,
+      1.86778459e-02, 1.25954115e-01, 5.77117442e-01, 9.57370344e-01, 9.17110057e-01, 4.93351703e-01, 7.56967585e-02,
+      4.81352535e-02, 4.36007108e-01, 8.82704729e-01, 9.77536382e-01, 6.33314284e-01, 1.66514644e-01, 6.31089805e-03,
+      2.99993632e-01, 7.77552294e-01, 9.99921653e-01, 7.62656346e-01, 2.83897001e-01, 3.81275330e-03, 1.79911767e-01,
+      6.50289422e-01, 9.82482671e-01, 8.71074573e-01, 4.18493220e-01, 4.08398200e-02, 8.53271681e-02, 5.11053801e-01,
+      9.26608616e-01, 9.49932433e-01, 5.59581441e-01, 1.14442543e-01, 2.37743887e-02, 3.70936861e-01, 8.36750384e-01,
+      9.92948153e-01, 6.95922659e-01, 2.18757772e-01, 1.56688283e-04, 2.41100236e-01, 7.20066028e-01, 9.96695125e-01,
+      8.16656010e-01, 3.45475816e-01, 1.63554394e-02, 1.31886637e-01, 5.85850559e-01, 9.60874869e-01, 9.12163945e-01,
+      4.84502387e-01, 7.10802588e-02, 5.19959582e-02, 4.44795503e-01, 8.88340804e-01, 9.74838356e-01, 6.24762709e-01,
+      1.59971799e-01, 7.79224413e-03, 3.08137226e-01, 7.84870953e-01, 9.99686636e-01, 7.55083725e-01, 2.75949010e-01,
+      2.79673751e-03, 1.86761847e-01, 6.58707666e-01, 9.84729384e-01, 8.65084138e-01, 4.09773215e-01, 3.74073776e-02,
+      9.03380600e-02, 5.19901037e-01,
+    };
+
+    {
+        auto copy = data;
+        minmax_scale<double>(copy, 0.0, 1.0);
+        assert(copy.size() == expected.size());
+        for (size_t i = 0; i < copy.size(); ++i) {
+            double diff = std::abs(copy[i] - expected[i]);
+            assert(diff < EPS);
+        }
+    }
+
+    {
+        minmax_scale_ctx_t<float> ctx;
+        minmax_scale(ctx, data, 0.0f, 1.0f);
+        auto r = ctx.result;
+        assert(r.size() == expected.size());
+        for (size_t i = 0; i < r.size(); ++i) {
+            double diff = std::abs(r[i] - expected[i]);
+            assert(diff < EPS);
         }
     }
 }
