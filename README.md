@@ -30,5 +30,10 @@ int main() {
         auto r = paa(data, 10);
         p(r);
     }
+
+    {
+        auto r = mtf(data, 16);
+        p(r);
+    }
 }
 ```

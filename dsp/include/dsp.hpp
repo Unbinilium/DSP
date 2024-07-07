@@ -1,8 +1,8 @@
 #pragma once
 
-#define ENABLE_ASSERT 1
-#define ENABLE_THROW  0
-#define BUILD_TESTS   1
+#define ENABLE_ASSERT
+#define ENABLE_THROW
+#define BUILD_TESTS
 
 #include <algorithm>
 #include <cassert>
@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-#if BUILD_TESTS
+#ifdef BUILD_TESTS
     #include <unordered_map>
 #endif
 
@@ -156,7 +156,7 @@ decltype(auto) firwin(size_t           numtaps,
                       bool             scale     = true,
                       window_t         window    = window_t::HAMMING) {
     if (cutoff.size() == 0) {
-#if ENABLE_THROW
+#ifdef ENABLE_THROW
         throw std::invalid_argument("At least one cutoff frequency must be given.");
 #else
         return std::vector<T>();
@@ -165,7 +165,7 @@ decltype(auto) firwin(size_t           numtaps,
 
     const bool pass_nyquist = 1 ^ pass_zero;
     if (pass_nyquist && numtaps % 2 == 0) {
-#if ENABLE_THROW
+#ifdef ENABLE_THROW
         throw std::invalid_argument("numtaps must be odd when pass_nyquist is True.");
 #else
         return std::vector<T>();
@@ -187,7 +187,7 @@ decltype(auto) firwin(size_t           numtaps,
     {
         const T    alpha = 0.5 * static_cast<T>(numtaps - 1);
         const auto size  = m.size();
-#if ENABLE_ASSERT
+#ifdef ENABLE_ASSERT
         assert(size == numtaps);
 #endif
         for (size_t i = 0; i < size; ++i) {
@@ -199,7 +199,7 @@ decltype(auto) firwin(size_t           numtaps,
     {
         const auto size   = bands.size();
         const auto size_h = h.size();
-#if ENABLE_ASSERT
+#ifdef ENABLE_ASSERT
         assert(size_h == m.size());
 #endif
         for (size_t i = 1; i < size; i += 2) {
@@ -220,14 +220,14 @@ decltype(auto) firwin(size_t           numtaps,
             win = hamming_window<T>(numtaps);
             break;
         default:
-#if ENABLE_THROW
+#ifdef ENABLE_THROW
             throw std::invalid_argument("Unsupported window type.");
 #else
             return std::vector<T>();
 #endif
         }
         const auto size = h.size();
-#if ENABLE_ASSERT
+#ifdef ENABLE_ASSERT
         assert(size == win.size());
 #endif
         for (size_t i = 0; i < size; ++i) {
@@ -236,7 +236,7 @@ decltype(auto) firwin(size_t           numtaps,
     }
 
     if (scale) {
-#if ENABLE_ASSERT
+#ifdef ENABLE_ASSERT
         assert(bands.size() >= 2);
 #endif
         const auto left  = bands[0];
@@ -252,7 +252,7 @@ decltype(auto) firwin(size_t           numtaps,
         }
 
         const auto size = h.size();
-#if ENABLE_ASSERT
+#ifdef ENABLE_ASSERT
         assert(size == m.size());
 #endif
         T s = 0.0;
@@ -293,7 +293,7 @@ constexpr bool is_lfilter_container_fine_v = is_lfilter_container_fine<Container
 
 using namespace traits;
 
-template <typename T> struct lfilter_ctx_t {
+template <typename T = double> struct lfilter_ctx_t {
     std::vector<T> result;
 };
 
@@ -305,7 +305,7 @@ template <typename T,
                              is_lfilter_container_fine_v<Container_2, T> && is_lfilter_container_fine_v<Container_3, T>,
                            bool> = true>
 void lfilter(lfilter_ctx_t<T>& ctx, const Container_1& b, const Container_2& a, const Container_3& x) {
-#if ENABLE_ASSERT
+#ifdef ENABLE_ASSERT
     assert(b.size() > 0);
     assert(a.size() > 0);
     assert(x.size() > 0);
@@ -321,7 +321,7 @@ void lfilter(lfilter_ctx_t<T>& ctx, const Container_1& b, const Container_2& a, 
     {
         const auto nb = b.size();
         const auto na = a.size();
-#if ENABLE_ASSERT
+#ifdef ENABLE_ASSERT
         assert(y.size() == nx);
 #endif
         for (size_t i = 0; i < nx; ++i) {
@@ -367,7 +367,7 @@ decltype(auto) lfilter(const Container_1& b, T a, const Container_2& x) {
     return lfilter<T>(b, a_, x);
 }
 
-template <typename T> struct paa_ctx_t {
+template <typename T = double> struct paa_ctx_t {
     std::vector<T> result;
 };
 
@@ -424,13 +424,13 @@ void minmax_scale(Container& v, T lower, T upper) {
 
     const auto min_v = *min;
     const auto diff  = *max - min_v;
-    const auto scale = (upper - lower) / diff;
+    const auto scale = upper - lower;
     for (auto& vi : v) {
-        vi = (vi - min_v) * scale + lower;
+        vi = ((vi - min_v) * scale / diff) + lower;
     }
 }
 
-template <typename T> struct minmax_scale_ctx_t {
+template <typename T = double> struct minmax_scale_ctx_t {
     std::vector<T> result;
 };
 
@@ -453,14 +453,119 @@ void minmax_scale(minmax_scale_ctx_t<T>& ctx, const Container& v, T lower, T upp
     minmax_scale(y, lower, upper);
 }
 
-template <
-  typename T = double,
-  typename Container,
-  std::enable_if_t<has_iterator_support_v<Container> && has_contained_type_nothrow_convertible_to_v<Container, T>,
-                   bool> = true>
-decltype(auto) minmax_scale(const Container& v, T lower, T upper) {
-    minmax_scale_ctx_t<T> ctx;
-    minmax_scale(ctx, v, lower, upper);
+template <typename T = double> struct mtf_ctx_t {
+    minmax_scale_ctx_t<T> minmax_ctx;
+    std::vector<T>        bins;
+    std::vector<size_t>   digitize;
+    std::vector<T>        transition_matrix;
+
+    std::vector<T>      result;
+    std::vector<size_t> shape;
+};
+
+template <typename T = double,
+          typename Container,
+          std::enable_if_t<has_size_method_with_size_t_v<Container> && has_index_access_operator_v<Container> &&
+                             has_contained_type_nothrow_convertible_to_v<Container, T>,
+                           bool> = true>
+void mtf(mtf_ctx_t<T>& ctx, const Container& ts, size_t n_bins = 16) {
+    auto& ctx_minmax_ctx = ctx.minmax_ctx;
+    minmax_scale(ctx_minmax_ctx, ts, static_cast<T>(0.0), static_cast<T>(1.0));
+    const auto& normalized = ctx_minmax_ctx.result;
+
+    auto& bins = ctx.bins;
+    if (bins.size() != n_bins) {
+        bins.resize(n_bins);
+        std::generate(bins.begin(), bins.end(), [space = n_bins - 1, n = 0]() mutable {
+            return static_cast<T>(n++) * static_cast<T>(1.0) / static_cast<T>(space);
+        });
+    }
+    auto&      digitize = ctx.digitize;
+    const auto ns       = normalized.size();
+    if (digitize.size() != ns) {
+        digitize.resize(ns);
+    }
+    {
+#ifdef ENABLE_ASSERT
+        assert(digitize.size() == ns);
+        assert(bins.size() == n_bins);
+#endif
+        for (size_t i = 0; i < ns; ++i) {
+            const auto ni  = normalized[i];
+            auto       idx = n_bins - 1;
+            for (size_t j = 0; j < n_bins; ++j) {
+                if (ni < bins[j]) {
+                    idx = j;
+                    break;
+                }
+            }
+            digitize[i] = idx >= 1 ? idx - 1 : idx;
+        }
+    }
+
+    const auto tms               = n_bins * n_bins;
+    auto&      transition_matrix = ctx.transition_matrix;
+    if (transition_matrix.size() != n_bins) {
+        transition_matrix.resize(tms);
+        std::fill(transition_matrix.begin(), transition_matrix.end(), static_cast<T>(0.0));
+    }
+    {
+        const size_t start = 1;
+        const size_t end   = digitize.size();
+        for (size_t p = start; p < end; ++p) {
+            const size_t i = digitize[p - 1];
+            const size_t j = digitize[p];
+            transition_matrix[(i * n_bins) + j] += static_cast<T>(1.0);
+        }
+    }
+    {
+        const auto stride = n_bins;
+        const auto size   = transition_matrix.size();
+#ifdef ENABLE_ASSERT
+        assert(size == tms);
+#endif
+        for (size_t i = 0; i < size; i += stride) {
+            T sum = 0.0;
+            for (size_t j = 0; j < stride; ++j) {
+                sum += transition_matrix[i + j];
+            }
+            for (size_t j = 0; j < stride; ++j) {
+                transition_matrix[i + j] /= sum;
+            }
+        }
+    }
+
+    auto&      y     = ctx.result;
+    auto&      shape = ctx.shape;
+    const auto cols  = ns;
+    const auto rows  = ns;
+    const auto ys    = cols * rows;
+    if (y.size() != ys) {
+        y.resize(ys);
+        shape = {cols, rows};
+    }
+    {
+#ifdef ENABLE_ASSERT
+        assert(y.size() == ys);
+#endif
+        for (size_t i = 0; i < cols; ++i) {
+            const auto i_nul_cols = i * cols;
+            for (size_t j = 0; j < rows; ++j) {
+                const auto idx = i_nul_cols + j;
+                y[idx]         = transition_matrix[(digitize[i] * n_bins) + digitize[j]];
+            }
+        }
+    }
+}
+
+template <typename T = double,
+          typename Container,
+          std::enable_if_t<has_size_method_with_size_t_v<Container> && has_index_access_operator_v<Container> &&
+                             has_contained_type_nothrow_convertible_to_v<Container, T>,
+                           bool> = true>
+decltype(auto) mtf(const Container& ts, size_t n_bins = 16) {
+    mtf_ctx_t<T> ctx;
+    mtf(ctx, ts, n_bins);
     const auto r = std::move(ctx.result);
     return r;
 }
@@ -833,7 +938,7 @@ void test_minmax_scale() {
         assert(copy.size() == expected.size());
         for (size_t i = 0; i < copy.size(); ++i) {
             double diff = std::abs(copy[i] - expected[i]);
-            assert(diff < EPS);
+            assert(diff < 1e-8);
         }
     }
 
@@ -844,7 +949,56 @@ void test_minmax_scale() {
         assert(r.size() == expected.size());
         for (size_t i = 0; i < r.size(); ++i) {
             double diff = std::abs(r[i] - expected[i]);
-            assert(diff < EPS);
+            assert(diff < 1e-7);
+        }
+    }
+}
+
+void test_mtf() {
+    std::vector<double> data = {
+      0.,
+      0.09983342,
+      0.19866933,
+      0.29552021,
+      0.38941834,
+      0.47942554,
+      0.56464247,
+      0.64421769,
+      0.71735609,
+      0.78332691,
+    };
+    std::vector<double> expected = {
+      0.66666667, 0.66666667, 0.66666667, 0.33333333, 0.33333333, 0.33333333, 0.,         0.,         0.,
+      0.,         0.66666667, 0.66666667, 0.66666667, 0.33333333, 0.33333333, 0.33333333, 0.,         0.,
+      0.,         0.,         0.66666667, 0.66666667, 0.66666667, 0.33333333, 0.33333333, 0.33333333, 0.,
+      0.,         0.,         0.,         0.,         0.,         0.,         0.66666667, 0.66666667, 0.66666667,
+      0.33333333, 0.33333333, 0.33333333, 0.33333333, 0.,         0.,         0.,         0.66666667, 0.66666667,
+      0.66666667, 0.33333333, 0.33333333, 0.33333333, 0.33333333, 0.,         0.,         0.,         0.66666667,
+      0.66666667, 0.66666667, 0.33333333, 0.33333333, 0.33333333, 0.33333333, 0.,         0.,         0.,
+      0.,         0.,         0.,         1.,         1.,         1.,         1.,         0.,         0.,
+      0.,         0.,         0.,         0.,         1.,         1.,         1.,         1.,         0.,
+      0.,         0.,         0.,         0.,         0.,         1.,         1.,         1.,         1.,
+      0.,         0.,         0.,         0.,         0.,         0.,         1.,         1.,         1.,
+      1.,
+    };
+
+    {
+        auto r = mtf<double>(data, 4);
+        assert(r.size() == expected.size());
+
+        for (size_t i = 0; i < r.size(); ++i) {
+            auto diff = std::abs(r[i] - expected[i]);
+            assert(diff < 1e-8);
+        }
+    }
+
+    {
+        auto r = mtf<float>(data, 4);
+        assert(r.size() == expected.size());
+
+        for (size_t i = 0; i < r.size(); ++i) {
+            auto diff = std::abs(r[i] - expected[i]);
+            assert(diff < 1e-7);
         }
     }
 }
