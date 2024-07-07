@@ -549,9 +549,9 @@ void mtf(mtf_ctx_t<T>& ctx, const Container& ts, size_t n_bins = 16) {
         assert(y.size() == ys);
 #endif
         for (size_t i = 0; i < cols; ++i) {
-            const auto i_nul_cols = i * cols;
+            const auto i_mul_cols = i * cols;
             for (size_t j = 0; j < rows; ++j) {
-                const auto idx = i_nul_cols + j;
+                const auto idx = i_mul_cols + j;
                 y[idx]         = transition_matrix[(digitize[i] * n_bins) + digitize[j]];
             }
         }
