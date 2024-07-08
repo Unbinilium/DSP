@@ -35,5 +35,10 @@ int main() {
         auto r = mtf(data, 16);
         p(r);
     }
+
+    {
+        auto r = resize(data, std::vector<int>{4, 4}, std::vector<int>{2, 2});
+        p(r);
+    }
 }
 ```

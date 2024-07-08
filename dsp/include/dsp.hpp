@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdint>
 #include <initializer_list>
+#include <numeric>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -166,7 +167,7 @@ decltype(auto) firwin(size_t           numtaps,
     const bool pass_nyquist = 1 ^ pass_zero;
     if (pass_nyquist && numtaps % 2 == 0) {
 #ifdef ENABLE_THROW
-        throw std::invalid_argument("numtaps must be odd when pass_nyquist is True.");
+        throw std::invalid_argument("The numtaps must be odd when pass_nyquist is True.");
 #else
         return std::vector<T>();
 #endif
@@ -293,9 +294,7 @@ constexpr bool is_lfilter_container_fine_v = is_lfilter_container_fine<Container
 
 using namespace traits;
 
-template <typename T = double> struct lfilter_ctx_t {
-    std::vector<T> result;
-};
+template <typename T = double> struct lfilter_ctx_t { std::vector<T> result; };
 
 template <typename T,
           typename Container_1,
@@ -367,9 +366,7 @@ decltype(auto) lfilter(const Container_1& b, T a, const Container_2& x) {
     return lfilter<T>(b, a_, x);
 }
 
-template <typename T = double> struct paa_ctx_t {
-    std::vector<T> result;
-};
+template <typename T = double> struct paa_ctx_t { std::vector<T> result; };
 
 template <typename T = double,
           typename Container,
@@ -430,9 +427,7 @@ void minmax_scale(Container& v, T lower, T upper) {
     }
 }
 
-template <typename T = double> struct minmax_scale_ctx_t {
-    std::vector<T> result;
-};
+template <typename T = double> struct minmax_scale_ctx_t { std::vector<T> result; };
 
 template <
   typename T,
@@ -566,6 +561,188 @@ template <typename T = double,
 decltype(auto) mtf(const Container& ts, size_t n_bins = 16) {
     mtf_ctx_t<T> ctx;
     mtf(ctx, ts, n_bins);
+    const auto r = std::move(ctx.result);
+    return r;
+}
+
+namespace types {
+
+enum class resize_interpolation_t {
+    BILINEAR,
+};
+
+}
+
+using namespace types;
+
+namespace traits {
+
+template <typename Container, typename T, typename = std::void_t<>>
+struct is_resize_container_fine : std::false_type {};
+
+template <typename Container, typename T>
+struct is_resize_container_fine<
+  Container,
+  T,
+  std::void_t<std::enable_if_t<has_size_method_with_size_t_v<Container> && has_index_access_operator_v<Container> &&
+                               has_contained_type_nothrow_convertible_to_v<Container, T>>>> : std::true_type {};
+
+template <typename Container, typename T>
+constexpr bool is_resize_container_fine_v = is_resize_container_fine<Container, T>::value;
+
+template <typename Container, typename T, typename = std::void_t<>>
+struct is_resize_shape_container_fine : std::false_type {};
+
+template <typename Container, typename T>
+struct is_resize_shape_container_fine<
+  Container,
+  T,
+  std::void_t<std::enable_if_t<has_size_method_with_size_t_v<Container> && has_iterator_support_v<Container> &&
+                               has_index_access_operator_v<Container> &&
+                               has_contained_type_nothrow_convertible_to_v<Container, T>>>> : std::true_type {};
+
+template <typename Container, typename T>
+constexpr bool is_resize_shape_container_fine_v = is_resize_shape_container_fine<Container, T>::value;
+
+}  // namespace traits
+
+using namespace traits;
+
+template <typename T = double> struct resize_ctx_t {
+    std::vector<T>      result;
+    std::vector<size_t> shape;
+};
+
+template <
+  typename T = double,
+  typename P = int16_t,
+  typename Q = double,
+  typename Container_1,
+  typename Container_2,
+  typename Container_3,
+  std::enable_if_t<std::is_nothrow_convertible_v<P, size_t> && std::is_floating_point_v<Q> &&
+                     is_resize_container_fine_v<Container_1, T> && is_resize_shape_container_fine_v<Container_2, P> &&
+                     is_resize_shape_container_fine_v<Container_3, P>,
+                   bool> = true>
+void resize(resize_ctx_t<T>&       ctx,
+            const Container_1&     m,
+            const Container_2&     shape,
+            const Container_3&     new_shape,
+            resize_interpolation_t interpolation = resize_interpolation_t::BILINEAR) {
+    if (shape.size() != 2 || new_shape.size() != 2) {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("Unsupported dimensions of shape or new_shape.");
+#else
+        return;
+#endif
+    }
+    for (const auto& s : shape) {
+        if (s < 2) {
+#ifdef ENABLE_THROW
+            throw std::invalid_argument("The shape must be greater than or equal to 2.");
+#else
+            return;
+#endif
+        }
+    }
+    const auto s0        = shape[0];
+    const auto s1        = shape[1];
+    const auto s0_mul_s1 = s0 * s1;
+    if (m.size() < s0_mul_s1) {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The size of m must be greater than or equal to the product of shape.");
+#else
+        return;
+#endif
+    }
+    if (s0_mul_s1 > std::numeric_limits<P>::max()) {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The product of shape must be less than or equal to the maximum value of type P.");
+#else
+        return;
+#endif
+    }
+
+    switch (interpolation) {
+    case resize_interpolation_t::BILINEAR: {
+        const P w       = static_cast<P>(s0);
+        const P h       = static_cast<P>(s1);
+        const P w_c     = w - static_cast<P>(2);
+        const P h_c     = h - static_cast<P>(2);
+        const P new_w   = static_cast<P>(new_shape[0]);
+        const P new_h   = static_cast<P>(new_shape[1]);
+        const Q scale_x = static_cast<Q>(w) / static_cast<Q>(new_w);
+        const Q scale_y = static_cast<Q>(h) / static_cast<Q>(new_h);
+        const Q _0_5    = static_cast<Q>(0.5);
+        const T _1      = static_cast<T>(1.0);
+
+        auto&   t     = ctx.result;
+        const P new_n = new_w * new_h;
+        if (t.size() != new_n) {
+            t.resize(new_n);
+            ctx.shape = {static_cast<size_t>(new_h), static_cast<size_t>(new_w)};
+        }
+
+        for (P i = 0; i < new_h; ++i) {
+            const P i_mul_new_w = i * new_w;
+
+            for (P j = 0; j < new_w; ++j) {
+                const Q x = (static_cast<Q>(static_cast<Q>(j) + _0_5) * scale_x) - _0_5;
+                const Q y = (static_cast<Q>(static_cast<Q>(i) + _0_5) * scale_y) - _0_5;
+
+                const P x0 = static_cast<P>(std::floor(x));
+                const P y0 = static_cast<P>(std::floor(y));
+
+                const P x1 = std::min(x0, w_c);
+                const P y1 = std::min(y0, h_c);
+
+                const P y1_mul_w    = y1 * w;
+                const P y1_p1_mul_w = (y1 + static_cast<P>(1)) * w;
+                const P x1_p1       = x1 + static_cast<P>(1);
+
+                const T a = m[y1_mul_w + x1];
+                const T b = m[y1_mul_w + x1_p1];
+                const T c = m[y1_p1_mul_w + x1];
+                const T d = m[y1_p1_mul_w + x1_p1];
+
+                const T xd      = x - x1;
+                const T yd      = y - y1;
+                const T _1_s_xd = _1 - xd;
+                const T _1_s_yd = _1 - yd;
+
+                const T p = (a * _1_s_xd * _1_s_yd) + (b * xd * _1_s_yd) + (c * _1_s_xd * yd) + (d * xd * yd);
+
+                t[i_mul_new_w + j] = p;
+            }
+        }
+    } break;
+
+    default:
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("Unsupported interpolation type.");
+#else
+        return;
+#endif
+    }
+}
+
+template <
+  typename T = double,
+  typename P = int16_t,
+  typename Q = double,
+  typename Container_1,
+  typename Container_2,
+  typename Container_3,
+  std::enable_if_t<std::is_nothrow_convertible_v<P, size_t> && std::is_floating_point_v<Q> &&
+                     is_resize_container_fine_v<Container_1, T> && is_resize_shape_container_fine_v<Container_2, P> &&
+                     is_resize_shape_container_fine_v<Container_3, P>,
+                   bool> = true>
+decltype(auto) resize(const Container_1&     m,
+                      const Container_2&     shape,
+                      const Container_3&     new_shape,
+                      resize_interpolation_t interpolation = resize_interpolation_t::BILINEAR) {
+    resize_ctx_t<T> ctx;
+    resize(ctx, m, shape, new_shape, interpolation);
     const auto r = std::move(ctx.result);
     return r;
 }
@@ -985,7 +1162,6 @@ void test_mtf() {
     {
         auto r = mtf<double>(data, 4);
         assert(r.size() == expected.size());
-
         for (size_t i = 0; i < r.size(); ++i) {
             auto diff = std::abs(r[i] - expected[i]);
             assert(diff < 1e-8);
@@ -995,10 +1171,57 @@ void test_mtf() {
     {
         auto r = mtf<float>(data, 4);
         assert(r.size() == expected.size());
-
         for (size_t i = 0; i < r.size(); ++i) {
             auto diff = std::abs(r[i] - expected[i]);
             assert(diff < 1e-7);
+        }
+    }
+}
+
+void test_resize() {
+    std::vector<double> data{
+      0.,         0.1010101,  0.2020202,  0.3030303,  0.4040404,  0.50505051, 0.60606061, 0.70707071, 0.80808081,
+      0.90909091, 1.01010101, 1.11111111, 1.21212121, 1.31313131, 1.41414141, 1.51515152, 1.61616162, 1.71717172,
+      1.81818182, 1.91919192, 2.02020202, 2.12121212, 2.22222222, 2.32323232, 2.42424242, 2.52525253, 2.62626263,
+      2.72727273, 2.82828283, 2.92929293, 3.03030303, 3.13131313, 3.23232323, 3.33333333, 3.43434343, 3.53535354,
+      3.63636364, 3.73737374, 3.83838384, 3.93939394, 4.04040404, 4.14141414, 4.24242424, 4.34343434, 4.44444444,
+      4.54545455, 4.64646465, 4.74747475, 4.84848485, 4.94949495, 5.05050505, 5.15151515, 5.25252525, 5.35353535,
+      5.45454545, 5.55555556, 5.65656566, 5.75757576, 5.85858586, 5.95959596, 6.06060606, 6.16161616, 6.26262626,
+      6.36363636, 6.46464646, 6.56565657, 6.66666667, 6.76767677, 6.86868687, 6.96969697, 7.07070707, 7.17171717,
+      7.27272727, 7.37373737, 7.47474747, 7.57575758, 7.67676768, 7.77777778, 7.87878788, 7.97979798, 8.08080808,
+      8.18181818, 8.28282828, 8.38383838, 8.48484848, 8.58585859, 8.68686869, 8.78787879, 8.88888889, 8.98989899,
+      9.09090909, 9.19191919, 9.29292929, 9.39393939, 9.49494949, 9.5959596,  9.6969697,  9.7979798,  9.8989899,
+      10.,
+    };
+    std::vector<int16_t> data_shape = {10, 10};
+    std::vector<double>  expected   = {
+         1.2962963,
+         1.63299663,
+         1.96969697,
+         4.66329966,
+         5.,
+         5.33670034,
+         8.03030303,
+         8.36700337,
+         8.7037037,
+    };
+    std::vector<int16_t> expected_shape = {3, 3};
+
+    {
+        auto r = resize<double>(data, data_shape, expected_shape);
+        assert(r.size() == expected.size());
+        for (size_t i = 0; i < r.size(); ++i) {
+            double diff = std::abs(r[i] - expected[i]);
+            assert(diff < 1e-8);
+        }
+    }
+
+    {
+        auto r = resize<float>(data, data_shape, expected_shape);
+        assert(r.size() == expected.size());
+        for (size_t i = 0; i < r.size(); ++i) {
+            double diff = std::abs(r[i] - expected[i]);
+            assert(diff < 1e-6);
         }
     }
 }
