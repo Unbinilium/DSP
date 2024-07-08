@@ -5,14 +5,18 @@
 #define BUILD_TESTS
 
 #include <algorithm>
-#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <initializer_list>
+#include <iterator>
 #include <numeric>
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#ifdef ENABLE_ASSERT
+    #include <cassert>
+#endif
 
 #ifdef BUILD_TESTS
     #include <unordered_map>
@@ -598,7 +602,6 @@ struct is_resize_shape_container_fine<
   Container,
   T,
   std::void_t<std::enable_if_t<has_size_method_with_size_t_v<Container> && has_iterator_support_v<Container> &&
-                               has_index_access_operator_v<Container> &&
                                has_contained_type_nothrow_convertible_to_v<Container, T>>>> : std::true_type {};
 
 template <typename Container, typename T>
@@ -645,8 +648,8 @@ void resize(resize_ctx_t<T>&       ctx,
 #endif
         }
     }
-    const auto s0        = shape[0];
-    const auto s1        = shape[1];
+    const auto s0        = *shape.begin();
+    const auto s1        = *(std::next(shape.begin(), 1));
     const auto s0_mul_s1 = s0 * s1;
     if (m.size() < s0_mul_s1) {
 #ifdef ENABLE_THROW
@@ -669,8 +672,8 @@ void resize(resize_ctx_t<T>&       ctx,
         const P h       = static_cast<P>(s1);
         const P w_c     = w - static_cast<P>(2);
         const P h_c     = h - static_cast<P>(2);
-        const P new_w   = static_cast<P>(new_shape[0]);
-        const P new_h   = static_cast<P>(new_shape[1]);
+        const P new_w   = static_cast<P>(*new_shape.begin());
+        const P new_h   = static_cast<P>(*(std::next(new_shape.begin(), 1)));
         const Q scale_x = static_cast<Q>(w) / static_cast<Q>(new_w);
         const Q scale_y = static_cast<Q>(h) / static_cast<Q>(new_h);
         const Q _0_5    = static_cast<Q>(0.5);
