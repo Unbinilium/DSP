@@ -855,7 +855,7 @@ decltype(auto) integrate_wavelet(cwt_wavelet_t wavelet, size_t percision = 10, T
 #ifdef ENABLE_THROW
         throw std::invalid_argument("Unsupported wavelet type.");
 #else
-        return std::pair<std::vector<T>, std::vector<T>>();
+        return std::make_pair(std::move(psi), std::move(x));
 #endif
     }
 
