@@ -40,5 +40,11 @@ int main() {
         auto r = resize(data, std::vector<int>{4, 4}, std::vector<int>{2, 2});
         p(r);
     }
+
+    {
+        auto c = std::vector<double>(data.size(), 0.1);
+        auto r = psnr(data, c);
+        std::cout << r << std::endl;
+    }
 }
 ```

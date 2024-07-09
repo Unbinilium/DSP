@@ -750,6 +750,68 @@ decltype(auto) resize(const Container_1&     m,
     return r;
 }
 
+namespace traits {
+
+template <typename Container, typename T, typename = std::void_t<>> struct is_psnr_container_fine : std::false_type {};
+
+template <typename Container, typename T>
+struct is_psnr_container_fine<
+  Container,
+  T,
+  std::void_t<std::enable_if_t<has_size_method_with_size_t_v<Container> && has_index_access_operator_v<Container> &&
+                               has_contained_type_nothrow_convertible_to_v<Container, T>>>> : std::true_type {};
+
+template <typename Container, typename T>
+constexpr bool is_psnr_container_fine_v = is_psnr_container_fine<Container, T>::value;
+
+}  // namespace traits
+
+using namespace traits;
+
+template <typename T = double,
+          typename Container,
+          std::enable_if_t<std::is_floating_point_v<T> && is_psnr_container_fine_v<Container, T> &&
+                             is_psnr_container_fine_v<Container, T>,
+                           bool> = true>
+decltype(auto) psnr(const Container& target, const Container& preds) {
+    const auto n_target = target.size();
+    const auto n_preds  = preds.size();
+    if (n_target != n_preds) {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The size of target and preds must be equal.");
+#else
+        return std::numeric_limits<T>::infinity();
+#endif
+    }
+    if (n_target == 0) {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The size of target and preds must be greater than 0.");
+#else
+        return std::numeric_limits<T>::infinity();
+#endif
+    }
+
+    T y;
+    {
+        using V = Container::value_type;
+        V max   = std::numeric_limits<V>::min();
+        T mse   = static_cast<T>(0.0);
+        for (size_t i = 0; i < n_target; ++i) {
+            const auto target_i = target[i];
+            max                 = std::max(max, target_i);
+            const auto diff     = target_i - preds[i];
+            mse += diff * diff;
+        }
+        mse /= static_cast<T>(n_target);
+        if (mse < EPS) {
+            mse = EPS;
+        }
+        y = static_cast<T>(10.0) * std::log10(static_cast<T>(max * max) / mse);
+    }
+
+    return y;
+}
+
 namespace tests {
 
 #ifdef BUILD_TESTS
@@ -1226,6 +1288,35 @@ void test_resize() {
             double diff = std::abs(r[i] - expected[i]);
             assert(diff < 1e-6);
         }
+    }
+}
+
+void test_psnr() {
+    std::vector<uint8_t> original{
+      0,   2,   5,   7,   10,  12,  15,  18,  20,  23,  25,  28,  30,  33,  36,  38,  41,  43,  46,  48,
+      51,  54,  56,  59,  61,  64,  66,  69,  72,  74,  77,  79,  82,  85,  87,  90,  92,  95,  97,  100,
+      103, 105, 108, 110, 113, 115, 118, 121, 123, 126, 128, 131, 133, 136, 139, 141, 144, 146, 149, 151,
+      154, 157, 159, 162, 164, 167, 170, 172, 175, 177, 180, 182, 185, 188, 190, 193, 195, 198, 200, 203,
+      206, 208, 211, 213, 216, 218, 221, 224, 226, 229, 231, 234, 236, 239, 242, 244, 247, 249, 252, 255,
+    };
+    std::vector<uint8_t> compressed{
+      0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+      25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
+      50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74,
+      75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,
+    };
+    double expected = 9.059609569978468;
+
+    {
+        auto r    = psnr<double>(original, compressed);
+        auto diff = std::abs(r - expected);
+        assert(diff < EPS);
+    }
+
+    {
+        auto r    = psnr<float>(original, compressed);
+        auto diff = std::abs(r - expected);
+        assert(diff < 1e-6);
     }
 }
 
