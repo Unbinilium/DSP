@@ -46,5 +46,13 @@ int main() {
         auto r = psnr(data, c);
         std::cout << r << std::endl;
     }
+
+    {
+        auto [psi, x] = integrate_wavelet(cwt_wavelet_t::MORLET, 10);
+        std::vector<int> scales(65);
+        std::iota(scales.begin(), scales.end(), 1);
+        auto r = cwt(data, scales, psi, x);
+        p(r);
+    }
 }
 ```
