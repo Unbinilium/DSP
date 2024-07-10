@@ -977,7 +977,7 @@ void cwt(cwt_ctx_t<T>&         ctx,
 #ifdef ENABLE_ASSERT
                 assert(psi_arange.size() >= psi_arange_end);
 #endif
-                const auto scale_mul_step = std::min(scale * x_step, EPS);
+                const auto scale_mul_step = std::max(scale * x_step, EPS);
                 for (size_t j = 0; j < psi_arange_end; ++j) {
                     const auto idx = static_cast<size_t>(std::floor(static_cast<P>(psi_arange[j]) / scale_mul_step));
                     if (idx >= n_psi) {
@@ -1041,7 +1041,8 @@ void cwt(cwt_ctx_t<T>&         ctx,
             }
             const size_t start   = static_cast<size_t>(std::floor(d));
             const size_t end_max = start + n_ts;
-            const size_t end     = std::min(end_max, len_diff - static_cast<size_t>(std::ceil(d)));
+            size_t end     = len_diff - static_cast<size_t>(std::ceil(d));
+            end            = std::min(end_max, end); 
             for (size_t j = start; j < end; ++j) {
                 result[result_pos++] = coefficients[j];
             }
