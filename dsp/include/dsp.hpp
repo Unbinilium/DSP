@@ -298,7 +298,9 @@ constexpr bool is_lfilter_container_fine_v = is_lfilter_container_fine<Container
 
 using namespace traits;
 
-template <typename T = double> struct lfilter_ctx_t { std::vector<T> result; };
+template <typename T = double> struct lfilter_ctx_t {
+    std::vector<T> result;
+};
 
 template <typename T,
           typename Container_1,
@@ -370,7 +372,9 @@ decltype(auto) lfilter(const Container_1& b, T a, const Container_2& x) {
     return lfilter<T>(b, a_, x);
 }
 
-template <typename T = double> struct paa_ctx_t { std::vector<T> result; };
+template <typename T = double> struct paa_ctx_t {
+    std::vector<T> result;
+};
 
 template <typename T = double,
           typename Container,
@@ -431,7 +435,9 @@ void minmax_scale(Container& v, T lower, T upper) {
     }
 }
 
-template <typename T = double> struct minmax_scale_ctx_t { std::vector<T> result; };
+template <typename T = double> struct minmax_scale_ctx_t {
+    std::vector<T> result;
+};
 
 template <
   typename T,
@@ -651,7 +657,7 @@ void resize(resize_ctx_t<T>&       ctx,
     const auto s0        = *shape.begin();
     const auto s1        = *(std::next(shape.begin(), 1));
     const auto s0_mul_s1 = s0 * s1;
-    if (m.size() < s0_mul_s1) {
+    if (static_cast<decltype(s0_mul_s1)>(m.size()) < s0_mul_s1) {
 #ifdef ENABLE_THROW
         throw std::invalid_argument("The size of m must be greater than or equal to the product of shape.");
 #else
@@ -681,7 +687,7 @@ void resize(resize_ctx_t<T>&       ctx,
 
         auto&   t     = ctx.result;
         const P new_n = new_w * new_h;
-        if (t.size() != new_n) {
+        if (static_cast<decltype(new_n)>(t.size()) != new_n) {
             t.resize(new_n);
             ctx.shape = {static_cast<size_t>(new_h), static_cast<size_t>(new_w)};
         }
@@ -855,6 +861,8 @@ decltype(auto) integrate_wavelet(cwt_wavelet_t wavelet, size_t percision = 10, T
 #ifdef ENABLE_THROW
         throw std::invalid_argument("Unsupported wavelet type.");
 #else
+        std::fill(psi.begin(), psi.end(), static_cast<T>(0.0));
+        std::fill(x.begin(), x.end(), static_cast<T>(0.0));
         return std::make_pair(std::move(psi), std::move(x));
 #endif
     }
@@ -961,39 +969,47 @@ void cwt(cwt_ctx_t<T>&         ctx,
 #endif
         size_t result_pos = 0;
         for (size_t i = 0; i < n_scales; ++i) {
-            const auto scale           = ascending_scales[i];
+            const auto scale           = static_cast<P>(ascending_scales[i]);
             size_t     len_psi_indices = 0;
 
             {
-                const auto psi_arange_end = static_cast<size_t>(std::ceil((scale * x_range) + 1.0));
-                const auto scale_mul_step = scale * x_step;
+                const auto psi_arange_end = static_cast<size_t>(std::ceil(scale * x_range)) + 1;
 #ifdef ENABLE_ASSERT
                 assert(psi_arange.size() >= psi_arange_end);
 #endif
+                const auto scale_mul_step = std::min(scale * x_step, EPS);
                 for (size_t j = 0; j < psi_arange_end; ++j) {
-                    const auto idx = static_cast<size_t>(std::floor(static_cast<T>(psi_arange[j]) / scale_mul_step));
+                    const auto idx = static_cast<size_t>(std::floor(static_cast<P>(psi_arange[j]) / scale_mul_step));
                     if (idx >= n_psi) {
                         break;
                     }
                     psi_indices[len_psi_indices++] = idx;
                 }
             }
+            if (len_psi_indices < 1) {
+#ifdef ENABLE_THROW
+                throw std::runtime_error("Selected scale is too large.");
+#else
+                auto it = result.begin() + result_pos;
+                std::fill(it, it + n_ts, static_cast<T>(0.0));
+                result_pos += n_ts;
+                return;
+#endif
+            }
 
-            const auto len_conv = n_ts + len_psi_indices - 1;
+            const auto len_psi_idx_s_1 = len_psi_indices - 1;
+            const auto len_conv        = n_ts + len_psi_idx_s_1;
 #ifdef ENABLE_ASSERT
             assert(len_conv > 1);
             assert(coefficients.size() >= len_conv);
 #endif
-            {
-                const auto len_psi_idx_s_1 = len_psi_indices - 1;
-                for (size_t j = 0; j < n_ts; ++j) {
-                    const auto& ts_j = ts[j];
-                    for (size_t k = 0; k < len_psi_indices; ++k) {
-                        const auto psi_indices_rk = len_psi_idx_s_1 - k;
-                        const auto psi_index_rk   = psi_indices[psi_indices_rk];
-                        const auto psi_rk         = wavelet_psi[psi_index_rk];
-                        coefficients[j + k] += ts_j * psi_rk;
-                    }
+            for (size_t j = 0; j < n_ts; ++j) {
+                const auto ts_j = ts[j];
+                for (size_t k = 0; k < len_psi_indices; ++k) {
+                    const auto  psi_indices_rk = len_psi_idx_s_1 - k;
+                    const auto  psi_index_rk   = psi_indices[psi_indices_rk];
+                    const auto& psi_rk         = wavelet_psi[psi_index_rk];
+                    coefficients[j + k] += ts_j * psi_rk;
                 }
             }
 
@@ -1017,6 +1033,9 @@ void cwt(cwt_ctx_t<T>&         ctx,
 #ifdef ENABLE_THROW
                 throw std::runtime_error("Selected scale is too small.");
 #else
+                auto it = result.begin() + result_pos;
+                std::fill(it, it + n_ts, static_cast<T>(0.0));
+                result_pos += n_ts;
                 return;
 #endif
             }
@@ -1498,15 +1517,15 @@ void test_resize() {
     };
     std::vector<int16_t> data_shape = {10, 10};
     std::vector<double>  expected   = {
-         1.2962963,
-         1.63299663,
-         1.96969697,
-         4.66329966,
-         5.,
-         5.33670034,
-         8.03030303,
-         8.36700337,
-         8.7037037,
+      1.2962963,
+      1.63299663,
+      1.96969697,
+      4.66329966,
+      5.,
+      5.33670034,
+      8.03030303,
+      8.36700337,
+      8.7037037,
     };
     std::vector<int16_t> expected_shape = {3, 3};
 
@@ -1670,22 +1689,32 @@ void test_integrate_wavelet() {
 
 void test_cwt() {
     std::vector<double> data = {
-      1.,
-      2.,
-      3.,
-      4.,
-      5.,
-      6.,
-      7.,
-      8.,
-      9.,
-      10.,
+      0.00000000e+00,  1.95090322e-01,  3.82683432e-01,  5.55570233e-01,  7.07106781e-01,  8.31469612e-01,
+      9.23879533e-01,  9.80785280e-01,  1.00000000e+00,  9.80785280e-01,  9.23879533e-01,  8.31469612e-01,
+      7.07106781e-01,  5.55570233e-01,  3.82683432e-01,  1.95090322e-01,  1.22464680e-16,  -1.95090322e-01,
+      -3.82683432e-01, -5.55570233e-01, -7.07106781e-01, -8.31469612e-01, -9.23879533e-01, -9.80785280e-01,
+      -1.00000000e+00, -9.80785280e-01, -9.23879533e-01, -8.31469612e-01, -7.07106781e-01, -5.55570233e-01,
+      -3.82683432e-01, -1.95090322e-01, -2.44929360e-16, 1.95090322e-01,  3.82683432e-01,  5.55570233e-01,
+      7.07106781e-01,  8.31469612e-01,  9.23879533e-01,  9.80785280e-01,  1.00000000e+00,  9.80785280e-01,
+      9.23879533e-01,  8.31469612e-01,  7.07106781e-01,  5.55570233e-01,  3.82683432e-01,  1.95090322e-01,
+      3.67394040e-16,  -1.95090322e-01, -3.82683432e-01, -5.55570233e-01, -7.07106781e-01, -8.31469612e-01,
+      -9.23879533e-01, -9.80785280e-01, -1.00000000e+00, -9.80785280e-01, -9.23879533e-01, -8.31469612e-01,
+      -7.07106781e-01, -5.55570233e-01, -3.82683432e-01, -1.95090322e-01,
+    };
+    std::vector<int> scales = {
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
     };
 
     {
         auto [psi, x] = integrate_wavelet<double>(cwt_wavelet_t::MORLET, 10);
         cwt_ctx_t<double> ctx;
-        cwt(ctx, data, data, psi, x);
+        cwt(ctx, data, scales, psi, x);
+
+        std::cout << "[";
+        for (const auto v : ctx.result) {
+            std::cout << v << ", ";
+        }
+        std::cout << "]" << std::endl;
     }
 }
 
