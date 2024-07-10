@@ -17,7 +17,7 @@ int main() {
         for (const auto& x : v) {
             std::cout << x << " ";
         }
-        std::cout << endl;
+        std::cout << std::endl;
     };
 
     {
