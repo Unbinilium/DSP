@@ -745,7 +745,7 @@ decltype(auto) resize(const Container_1&     m,
                       const Container_3&     new_shape,
                       resize_interpolation_t interpolation = resize_interpolation_t::BILINEAR) {
     resize_ctx_t<T> ctx;
-    resize(ctx, m, shape, new_shape, interpolation);
+    resize<T, P, Q>(ctx, m, shape, new_shape, interpolation);
     const auto r = std::move(ctx.result);
     return r;
 }
@@ -793,7 +793,7 @@ decltype(auto) psnr(const Container& target, const Container& preds) {
 
     T y;
     {
-        using V = Container::value_type;
+        using V = typename Container::value_type;
         V max   = std::numeric_limits<V>::min();
         T mse   = static_cast<T>(0.0);
         for (size_t i = 0; i < n_target; ++i) {
@@ -870,7 +870,185 @@ decltype(auto) integrate_wavelet(cwt_wavelet_t wavelet, size_t percision = 10, T
     return std::make_pair(std::move(psi), std::move(x));
 }
 
-using namespace types;
+template <typename T = double> struct cwt_ctx_t {
+    std::vector<size_t> psi_arange;
+    std::vector<size_t> psi_indices;
+    std::vector<T>      coefficients;
+
+    std::vector<T>      result;
+    std::vector<size_t> shape;
+};
+
+namespace traits {
+
+template <typename Container, typename T, typename = std::void_t<>> struct is_cwt_container_fine : std::false_type {};
+
+template <typename Container, typename T>
+struct is_cwt_container_fine<
+  Container,
+  T,
+  std::void_t<std::enable_if_t<has_size_method_with_size_t_v<Container> && has_index_access_operator_v<Container> &&
+                               has_contained_type_nothrow_convertible_to_v<Container, T>>>> : std::true_type {};
+
+template <typename Container, typename T>
+constexpr bool is_cwt_container_fine_v = is_cwt_container_fine<Container, T>::value;
+
+}  // namespace traits
+
+using namespace traits;
+
+template <typename T = double,
+          typename P = double,
+          typename Container_1,
+          typename Container_2,
+          std::enable_if_t<std::is_floating_point_v<T> && std::is_floating_point_v<P> &&
+                             is_cwt_container_fine_v<Container_1, T> && is_cwt_container_fine_v<Container_2, T>,
+                           bool> = true>
+void cwt(cwt_ctx_t<T>&         ctx,
+         const Container_1&    ts,
+         const Container_2&    ascending_scales,
+         const std::vector<T>& wavelet_psi,
+         const std::vector<T>& wavelet_x) {
+    const auto n_psi = wavelet_psi.size();
+    const auto n_x   = wavelet_x.size();
+#ifdef ENABLE_ASSERT
+    assert(n_psi > 2);
+    assert(n_x > 2);
+    assert(n_x <= n_psi);
+#endif
+    const auto x_0      = wavelet_x[0];
+    const auto x_1      = wavelet_x[1];
+    const auto x_n      = wavelet_x[n_x - 1];
+    const auto x_step   = x_1 - x_0;
+    const auto x_range  = x_n - x_0;
+    const auto n_scales = ascending_scales.size();
+#ifdef ENABLE_ASSERT
+    assert(x_step > EPS);
+    assert(x_range > EPS);
+    assert(n_scales > 0);
+#endif
+    const auto max_scale         = ascending_scales[n_scales - 1];
+    const auto n_psi_indices_max = static_cast<size_t>(std::ceil((max_scale * x_range) + 1.0));
+    auto&      psi_arange        = ctx.psi_arange;
+    if (psi_arange.size() != n_psi_indices_max) {
+        psi_arange.resize(n_psi_indices_max);
+        std::iota(psi_arange.begin(), psi_arange.end(), 0);
+    }
+
+    auto& psi_indices = ctx.psi_indices;
+    if (psi_indices.size() != n_psi_indices_max) {
+        psi_indices.resize(n_psi_indices_max);
+    }
+
+    const auto n_ts = ts.size();
+#ifdef ENABLE_ASSERT
+    assert(n_ts > 0);
+#endif
+    const auto n_result = n_scales * n_ts;
+    auto&      result   = ctx.result;
+    if (result.size() != n_result) {
+        result.resize(n_result);
+        ctx.shape = {n_scales, n_ts};
+    }
+    const auto n_coefficients = n_ts + n_psi_indices_max - 1;
+    auto&      coefficients   = ctx.coefficients;
+    if (coefficients.size() != n_coefficients) {
+        coefficients.resize(n_coefficients);
+    }
+    {
+#ifdef ENABLE_ASSERT
+        assert(ascending_scales.size() >= n_scales);
+#endif
+        size_t result_pos = 0;
+        for (size_t i = 0; i < n_scales; ++i) {
+            const auto scale           = ascending_scales[i];
+            size_t     len_psi_indices = 0;
+
+            {
+                const auto psi_arange_end = static_cast<size_t>(std::ceil((scale * x_range) + 1.0));
+                const auto scale_mul_step = scale * x_step;
+#ifdef ENABLE_ASSERT
+                assert(psi_arange.size() >= psi_arange_end);
+#endif
+                for (size_t j = 0; j < psi_arange_end; ++j) {
+                    const auto idx = static_cast<size_t>(std::floor(static_cast<T>(psi_arange[j]) / scale_mul_step));
+                    if (idx >= n_psi) {
+                        break;
+                    }
+                    psi_indices[len_psi_indices++] = idx;
+                }
+            }
+
+            const auto len_conv = n_ts + len_psi_indices - 1;
+#ifdef ENABLE_ASSERT
+            assert(len_conv > 1);
+            assert(coefficients.size() >= len_conv);
+#endif
+            {
+                const auto len_psi_idx_s_1 = len_psi_indices - 1;
+                for (size_t j = 0; j < n_ts; ++j) {
+                    const auto& ts_j = ts[j];
+                    for (size_t k = 0; k < len_psi_indices; ++k) {
+                        const auto psi_indices_rk = len_psi_idx_s_1 - k;
+                        const auto psi_index_rk   = psi_indices[psi_indices_rk];
+                        const auto psi_rk         = wavelet_psi[psi_index_rk];
+                        coefficients[j + k] += ts_j * psi_rk;
+                    }
+                }
+            }
+
+            const auto len_diff = len_conv - 1;
+#ifdef ENABLE_ASSERT
+            assert(len_diff > 1);
+            assert(coefficients.size() >= len_diff);
+#endif
+            {
+                const auto negtive_sqrt_scale = -std::sqrt(scale);
+                for (size_t j = 1; j < len_conv; ++j) {
+                    auto&       coefficient_prev    = coefficients[j - 1];
+                    const auto& coefficient_current = coefficients[j];
+                    coefficient_prev                = coefficient_current - coefficient_prev;
+                    coefficient_prev *= negtive_sqrt_scale;
+                }
+            }
+
+            const auto d = static_cast<P>(len_diff - n_ts) / static_cast<P>(2.0);
+            if (d < EPS) {
+#ifdef ENABLE_THROW
+                throw std::runtime_error("Selected scale is too small.");
+#else
+                return;
+#endif
+            }
+            const size_t start   = static_cast<size_t>(std::floor(d));
+            const size_t end_max = start + n_ts;
+            const size_t end     = std::min(end_max, len_diff - static_cast<size_t>(std::ceil(d)));
+            for (size_t j = start; j < end; ++j) {
+                result[result_pos++] = coefficients[j];
+            }
+            for (size_t j = end; j < end_max; ++j) {
+                result[result_pos++] = static_cast<T>(0.0);
+            }
+        }
+    }
+}
+
+template <typename T = double,
+          typename P = double,
+          typename Container_1,
+          typename Container_2,
+          std::enable_if_t<std::is_floating_point_v<T> && std::is_floating_point_v<P> &&
+                             is_cwt_container_fine_v<Container_1, T> && is_cwt_container_fine_v<Container_2, T>,
+                           bool> = true>
+decltype(auto) cwt(const Container_1&    ts,
+                   const Container_2&    ascending_scales,
+                   const std::vector<T>& wavelet_psi,
+                   const std::vector<T>& wavelet_x) {
+    cwt_ctx_t<T> ctx;
+    cwt<T, P>(ctx, ts, ascending_scales, wavelet_psi, wavelet_x);
+    const auto r = std::move(ctx.result);
+    return r;
+}
 
 namespace tests {
 
@@ -1487,6 +1665,27 @@ void test_integrate_wavelet() {
             auto diff = std::abs(x[i] - expected_x[i]);
             assert(diff < 1e-6);
         }
+    }
+}
+
+void test_cwt() {
+    std::vector<double> data = {
+      1.,
+      2.,
+      3.,
+      4.,
+      5.,
+      6.,
+      7.,
+      8.,
+      9.,
+      10.,
+    };
+
+    {
+        auto [psi, x] = integrate_wavelet<double>(cwt_wavelet_t::MORLET, 10);
+        cwt_ctx_t<double> ctx;
+        cwt(ctx, data, data, psi, x);
     }
 }
 
