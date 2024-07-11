@@ -674,12 +674,12 @@ void resize(resize_ctx_t<T>&       ctx,
 
     switch (interpolation) {
     case resize_interpolation_t::BILINEAR: {
-        const P w       = static_cast<P>(s0);
-        const P h       = static_cast<P>(s1);
+        const P w       = static_cast<P>(s1);
+        const P h       = static_cast<P>(s0);
         const P w_c     = w - static_cast<P>(2);
         const P h_c     = h - static_cast<P>(2);
-        const P new_w   = static_cast<P>(*new_shape.begin());
-        const P new_h   = static_cast<P>(*(std::next(new_shape.begin(), 1)));
+        const P new_w   = static_cast<P>(*(std::next(new_shape.begin(), 1)));
+        const P new_h   = static_cast<P>(*new_shape.begin());
         const Q scale_x = static_cast<Q>(w) / static_cast<Q>(new_w);
         const Q scale_y = static_cast<Q>(h) / static_cast<Q>(new_h);
         const Q _0_5    = static_cast<Q>(0.5);
