@@ -112,6 +112,12 @@ using namespace types;
 
 namespace traits {
 
+template <typename T> struct is_complex : std::false_type {};
+
+template <typename T> struct is_complex<std::complex<T>> : std::true_type {};
+
+template <typename T> inline constexpr bool is_complex_v = is_complex<T>::value;
+
 template <typename T, typename = std::void_t<>> struct has_index_access_operator : std::false_type {};
 
 template <typename T>
@@ -489,7 +495,8 @@ template <typename T = double> struct mtf_ctx_t {
 template <typename T = double,
           typename P = double,
           typename Container,
-          std::enable_if_t<has_size_method_with_size_t_v<Container> && has_index_access_operator_v<Container> &&
+          std::enable_if_t<std::is_floating_point_v<P> && has_size_method_with_size_t_v<Container> &&
+                             has_index_access_operator_v<Container> &&
                              has_contained_type_nothrow_convertible_to_v<Container, T>,
                            bool> = true>
 void mtf(mtf_ctx_t<T>& ctx, const Container& x, size_t n_bins = 16) {
@@ -863,7 +870,7 @@ enum class cwt_wavelet_t {
 
 using namespace types;
 
-template <typename T = double, std::enable_if_t<std::is_floating_point_v<T>, bool> = true>
+template <typename T = double, std::enable_if_t<std::is_floating_point_v<T> || is_complex_v<T>, bool> = true>
 decltype(auto) integrate_wavelet(cwt_wavelet_t wavelet, size_t percision = 10, T lower = -8.0, T upper = 8.0) {
     if (percision <= 2 || percision >= sizeof(size_t) * 8) [[unlikely]] {
 #ifdef ENABLE_THROW
@@ -947,7 +954,7 @@ template <typename T = double,
           typename P = double,
           typename Container_1,
           typename Container_2,
-          std::enable_if_t<std::is_floating_point_v<T> && std::is_floating_point_v<P> &&
+          std::enable_if_t<(std::is_floating_point_v<T> || is_complex_v<T>) && std::is_floating_point_v<P> &&
                              is_cwt_container_fine_v<Container_1, T> && is_cwt_container_fine_v<Container_2, T>,
                            bool> = true>
 void cwt(cwt_ctx_t<T>&         ctx,
@@ -1135,7 +1142,7 @@ template <typename T = double,
           typename P = double,
           typename Container_1,
           typename Container_2,
-          std::enable_if_t<std::is_floating_point_v<T> && std::is_floating_point_v<P> &&
+          std::enable_if_t<(std::is_floating_point_v<T> || is_complex_v<T>) && std::is_floating_point_v<P> &&
                              is_cwt_container_fine_v<Container_1, T> && is_cwt_container_fine_v<Container_2, T>,
                            bool> = true>
 decltype(auto) cwt(const Container_1&    signal,
