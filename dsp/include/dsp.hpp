@@ -1069,7 +1069,7 @@ void cwt(cwt_ctx_t<T>&         ctx,
                 auto it = result.begin() + result_pos;
                 std::fill(it, it + n_signal, static_cast<T>(0.0));
                 result_pos += n_signal;
-                return;
+                continue;
 #endif
             }
 
@@ -1112,7 +1112,7 @@ void cwt(cwt_ctx_t<T>&         ctx,
                 auto it = result.begin() + result_pos;
                 std::fill(it, it + n_signal, static_cast<T>(0.0));
                 result_pos += n_signal;
-                return;
+                continue;
 #endif
             }
             const size_t start   = static_cast<size_t>(std::floor(d));
