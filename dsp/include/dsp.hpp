@@ -5,7 +5,9 @@
 #define BUILD_TESTS
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <initializer_list>
 #include <iterator>
@@ -16,14 +18,19 @@
 
 #ifdef ENABLE_ASSERT
     #include <cassert>
+    #define ENSURE_TRUE(expr) assert(expr)
+#else
+    #define ENSURE_TRUE(expr) ((void)0)
 #endif
 
 #ifdef BUILD_TESTS
+    #include <cassert>
     #include <unordered_map>
 #endif
 
 namespace dsp {
 
+// MARK: Constans
 namespace constants {
 
 static constexpr double EPS = 1.0e-20;
@@ -35,10 +42,11 @@ using namespace constants;
 
 namespace math {
 
+// MARK: Sinc
 template <typename T, std::enable_if_t<std::is_floating_point_v<T>, bool> = true>
-decltype(auto) sinc(T x, T eps = static_cast<T>(EPS)) {
-    if (x < eps && x > -eps) {
-        x = eps;
+constexpr inline decltype(auto) sinc(T x, T eps = static_cast<T>(EPS)) {
+    if (std::abs(x) < eps) {
+        x = static_cast<T>(eps);
     }
     x *= static_cast<T>(PI);
     return static_cast<T>(std::sin(x) / x);
@@ -48,26 +56,34 @@ decltype(auto) sinc(T x, T eps = static_cast<T>(EPS)) {
 
 using namespace math;
 
+// MARK: Hamming Window
 template <typename T, std::enable_if_t<std::is_floating_point_v<T>, bool> = true>
-decltype(auto) hamming_window(size_t M, T alpha = static_cast<T>(0.54), bool sym = true) {
-    const std::vector<T> a = {alpha, static_cast<T>(1.0) - alpha};
+decltype(auto) hamming_window(size_t width, T alpha = static_cast<T>(0.54), bool sym = true) {
+    if (width < 2) [[unlikely]] {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The width must be greater than or equal to 2.");
+#else
+        return std::vector<T>();
+#endif
+    }
 
-    std::vector<T> fac(sym ? M : M + 1);
+    std::vector<T> fac(sym ? width : width + 1);
     {
-        const T    start = -PI;
-        const T    end   = PI;
+        const auto start = -PI;
+        const auto end   = PI;
         const auto step  = std::abs(end - start);
         const auto size  = fac.size() - 1;
-        std::generate(fac.begin(), fac.end(), [&start, &step, size, n = 0]() mutable {
-            using S = std::decay_t<decltype(start)>;
-            return start + (step * (static_cast<S>(n++) / static_cast<S>(size)));
+        ENSURE_TRUE(size != 0);
+        std::generate(fac.begin(), fac.end(), [start, step, size, n = 0]() mutable {
+            return start + (step * (static_cast<T>(n++) / static_cast<T>(size)));
         });
     }
 
-    std::vector<T> w(fac.size(), static_cast<T>(0.0));
+    const std::array<T, 2> a = {alpha, static_cast<T>(1.0 - alpha)};
+    std::vector<T>         w(fac.size(), static_cast<T>(0.0));
     {
         const auto size = w.size();
-        assert(size == fac.size());
+        ENSURE_TRUE(size == fac.size());
         size_t k = 0;
         for (const auto& ai : a) {
             for (size_t i = 0; i < size; ++i) {
@@ -150,28 +166,29 @@ constexpr bool has_contained_type_nothrow_convertible_to_v =
 
 using namespace traits;
 
+// MARK: Firwin
 template <typename T = double,
           typename Conatiner,
           std::enable_if_t<has_size_method_with_size_t_v<Conatiner> && has_iterator_support_v<Conatiner> &&
                              has_contained_type_nothrow_convertible_to_v<Conatiner, T>,
                            bool> = true>
 decltype(auto) firwin(size_t           numtaps,
-                      const Conatiner& cutoff,
+                      const Conatiner& cutoffs,
                       bool             pass_zero = true,
                       bool             scale     = true,
                       window_t         window    = window_t::HAMMING) {
-    if (cutoff.size() == 0) {
+    if (cutoffs.size() == 0) [[unlikely]] {
 #ifdef ENABLE_THROW
-        throw std::invalid_argument("At least one cutoff frequency must be given.");
+        throw std::invalid_argument("At least one cutoffs frequency must be given.");
 #else
         return std::vector<T>();
 #endif
     }
 
-    const bool pass_nyquist = 1 ^ pass_zero;
-    if (pass_nyquist && numtaps % 2 == 0) {
+    const bool pass_nyquist = !pass_zero;
+    if (pass_nyquist & !(numtaps & 1)) [[unlikely]] {
 #ifdef ENABLE_THROW
-        throw std::invalid_argument("The numtaps must be odd when pass_nyquist is True.");
+        throw std::invalid_argument("The number of numtaps must be odd when pass_nyquist is true.");
 #else
         return std::vector<T>();
 #endif
@@ -182,7 +199,7 @@ decltype(auto) firwin(size_t           numtaps,
         if (pass_zero) {
             bands.push_back(static_cast<T>(0.0));
         }
-        std::copy(cutoff.begin(), cutoff.end(), std::back_inserter(bands));
+        std::copy(cutoffs.begin(), cutoffs.end(), std::back_inserter(bands));
         if (pass_nyquist) {
             bands.push_back(static_cast<T>(1.0));
         }
@@ -190,13 +207,11 @@ decltype(auto) firwin(size_t           numtaps,
 
     std::vector<T> m(numtaps);
     {
-        const T    alpha = 0.5 * static_cast<T>(numtaps - 1);
+        const auto alpha = 0.5 * static_cast<T>(numtaps - 1);
         const auto size  = m.size();
-#ifdef ENABLE_ASSERT
-        assert(size == numtaps);
-#endif
+        ENSURE_TRUE(size == numtaps);
         for (size_t i = 0; i < size; ++i) {
-            m[i] = static_cast<T>(i) - alpha;
+            m[i] = static_cast<T>(i) - static_cast<T>(alpha);
         }
     }
 
@@ -204,9 +219,7 @@ decltype(auto) firwin(size_t           numtaps,
     {
         const auto size   = bands.size();
         const auto size_h = h.size();
-#ifdef ENABLE_ASSERT
-        assert(size_h == m.size());
-#endif
+        ENSURE_TRUE(size_h == m.size());
         for (size_t i = 1; i < size; i += 2) {
             const auto left  = bands[i - 1];
             const auto right = bands[i];
@@ -224,6 +237,7 @@ decltype(auto) firwin(size_t           numtaps,
         case window_t::HAMMING:
             win = hamming_window<T>(numtaps);
             break;
+
         default:
 #ifdef ENABLE_THROW
             throw std::invalid_argument("Unsupported window type.");
@@ -232,18 +246,14 @@ decltype(auto) firwin(size_t           numtaps,
 #endif
         }
         const auto size = h.size();
-#ifdef ENABLE_ASSERT
-        assert(size == win.size());
-#endif
+        ENSURE_TRUE(size == win.size());
         for (size_t i = 0; i < size; ++i) {
             h[i] *= win[i];
         }
     }
 
     if (scale) {
-#ifdef ENABLE_ASSERT
-        assert(bands.size() >= 2);
-#endif
+        ENSURE_TRUE(bands.size() >= 2);
         const auto left  = bands[0];
         const auto right = bands[1];
 
@@ -257,15 +267,16 @@ decltype(auto) firwin(size_t           numtaps,
         }
 
         const auto size = h.size();
-#ifdef ENABLE_ASSERT
-        assert(size == m.size());
-#endif
-        T s = 0.0;
+        ENSURE_TRUE(size == m.size());
+        T sum = 0.0;
         for (size_t i = 0; i < size; ++i) {
-            s += h[i] * std::cos(PI * m[i] * scale_frequency);
+            sum += h[i] * std::cos(PI * m[i] * scale_frequency);
+        }
+        if (std::abs(sum) < EPS) [[unlikely]] {
+            sum = EPS;
         }
         for (auto& hi : h) {
-            hi /= s;
+            hi /= sum;
         }
     }
 
@@ -275,10 +286,11 @@ decltype(auto) firwin(size_t           numtaps,
 template <typename T = double, std::enable_if_t<std::is_floating_point_v<T>, bool> = true>
 decltype(auto) firwin(
   size_t numtaps, T cutoff, bool pass_zero = true, bool scale = true, window_t window = window_t::HAMMING) {
-    std::vector<T> c = {cutoff};
+    std::array<T, 1> c = {cutoff};
     return firwin<T>(numtaps, c, pass_zero, scale, window);
 }
 
+// MARK: Lfilter
 namespace traits {
 
 template <typename Container, typename T, typename = std::void_t<>>
@@ -302,46 +314,40 @@ template <typename T = double> struct lfilter_ctx_t {
     std::vector<T> result;
 };
 
-template <typename T,
+template <typename T = double,
           typename Container_1,
           typename Container_2,
           typename Container_3,
           std::enable_if_t<std::is_floating_point_v<T> && is_lfilter_container_fine_v<Container_1, T> &&
                              is_lfilter_container_fine_v<Container_2, T> && is_lfilter_container_fine_v<Container_3, T>,
                            bool> = true>
-void lfilter(lfilter_ctx_t<T>& ctx, const Container_1& b, const Container_2& a, const Container_3& x) {
-#ifdef ENABLE_ASSERT
-    assert(b.size() > 0);
-    assert(a.size() > 0);
-    assert(x.size() > 0);
-#endif
-
+void lfilter(lfilter_ctx_t<T>&  ctx,
+             const Container_1& numerators,
+             const Container_2& denominators,
+             const Container_3& x) {
     const auto nx = x.size();
     auto&      y  = ctx.result;
-    if (y.size() != nx) {
+    if (y.size() != nx) [[unlikely]] {
         y.resize(nx);
         std::fill(y.begin(), y.end(), static_cast<T>(0.0));
     }
 
     {
-        const auto nb = b.size();
-        const auto na = a.size();
-#ifdef ENABLE_ASSERT
-        assert(y.size() == nx);
-#endif
+        const auto nn = numerators.size();
+        const auto nd = denominators.size();
+        ENSURE_TRUE(y.size() == nx);
         for (size_t i = 0; i < nx; ++i) {
-            const auto in = i + 1;
-            const auto be = std::min(nb, in);
-            const auto ae = std::min(na, in);
-
-            auto& yi = y[i];
-
-            for (size_t j = 0; j < be; ++j) {
-                yi += b[j] * x[i - j];
+            const auto i_p1   = i + 1;
+            const auto nn_end = std::min(nn, i_p1);
+            const auto nd_end = std::min(nd, i_p1);
+            auto&      y_i    = y[i];
+            T          sum    = 0.0;
+            for (size_t j = 0; j < nn_end; ++j) {
+                sum += numerators[j] * x[i - j];
             }
-
-            for (size_t j = 1; j < ae; ++j) {
-                yi -= a[j] * y[i - j];
+            y_i += sum;
+            for (size_t j = 1; j < nd_end; ++j) {
+                y_i -= denominators[j] * y[i - j];
             }
         }
     }
@@ -354,9 +360,9 @@ template <typename T = double,
           std::enable_if_t<std::is_floating_point_v<T> && is_lfilter_container_fine_v<Container_1, T> &&
                              is_lfilter_container_fine_v<Container_2, T> && is_lfilter_container_fine_v<Container_3, T>,
                            bool> = true>
-decltype(auto) lfilter(const Container_1& b, const Container_2& a, const Container_3& x) {
-    lfilter_ctx_t<T> ctx{};
-    lfilter(ctx, b, a, x);
+decltype(auto) lfilter(const Container_1& numerators, const Container_2& denominators, const Container_3& x) {
+    lfilter_ctx_t<T> ctx;
+    lfilter(ctx, numerators, denominators, x);
     const auto r = std::move(ctx.result);
     return r;
 }
@@ -367,11 +373,12 @@ template <typename T = double,
           std::enable_if_t<std::is_floating_point_v<T> && is_lfilter_container_fine_v<Container_1, T> &&
                              is_lfilter_container_fine_v<Container_2, T>,
                            bool> = true>
-decltype(auto) lfilter(const Container_1& b, T a, const Container_2& x) {
-    std::vector<T> a_ = {a};
-    return lfilter<T>(b, a_, x);
+decltype(auto) lfilter(const Container_1& numerators, T denominator, const Container_2& x) {
+    std::array<T, 1> d = {denominator};
+    return lfilter<T>(numerators, d, x);
 }
 
+// MARK: Picewise Aggregate Approximation
 template <typename T = double> struct paa_ctx_t {
     std::vector<T> result;
 };
@@ -382,10 +389,10 @@ template <typename T = double,
                              has_index_access_operator_v<Container> &&
                              has_contained_type_nothrow_convertible_to_v<Container, T>,
                            bool> = true>
-void paa(paa_ctx_t<T>& ctx, const Container& ts, size_t segments) {
-    const auto n = ts.size();
+void paa(paa_ctx_t<T>& ctx, const Container& x, size_t segments) {
+    const auto n = x.size();
     auto&      y = ctx.result;
-    if (y.size() != segments) {
+    if (y.size() != segments) [[unlikely]] {
         y.resize(segments);
         std::fill(y.begin(), y.end(), static_cast<T>(0.0));
     }
@@ -396,9 +403,14 @@ void paa(paa_ctx_t<T>& ctx, const Container& ts, size_t segments) {
             const size_t end   = (n * (i + 1)) / segments;
             T            sum   = 0.0;
             for (size_t j = start; (j < end) & (j < n); ++j) {
-                sum += ts[j];
+                sum += x[j];
             }
-            y[i] = sum / static_cast<T>(end - start);
+            auto dist = end - start;
+            if (dist != 0) [[likely]] {
+                y[i] = sum / static_cast<T>(dist);
+            } else [[unlikely]] {
+                y[i] = sum / EPS;
+            }
         }
     }
 }
@@ -409,13 +421,14 @@ template <typename T = double,
                              has_index_access_operator_v<Container> &&
                              has_contained_type_nothrow_convertible_to_v<Container, T>,
                            bool> = true>
-decltype(auto) paa(const Container& ts, size_t segments) {
+decltype(auto) paa(const Container& x, size_t segments) {
     paa_ctx_t<T> ctx;
-    paa(ctx, ts, segments);
+    paa(ctx, x, segments);
     const auto r = std::move(ctx.result);
     return r;
 }
 
+// MARK: Minmax Scale
 template <
   typename T = double,
   typename Container,
@@ -423,12 +436,15 @@ template <
                    bool> = true>
 void minmax_scale(Container& v, T lower, T upper) {
     const auto [min, max] = std::minmax_element(v.begin(), v.end());
-    if (min == v.end() || max == v.end()) {
+    if (min == v.end() || max == v.end()) [[unlikely]] {
         return;
     }
 
     const auto min_v = *min;
-    const auto diff  = *max - min_v;
+    auto       diff  = *max - min_v;
+    if (std::abs(diff) < EPS) [[unlikely]] {
+        diff = EPS;
+    }
     const auto scale = upper - lower;
     for (auto& vi : v) {
         vi = ((vi - min_v) * scale / diff) + lower;
@@ -440,19 +456,20 @@ template <typename T = double> struct minmax_scale_ctx_t {
 };
 
 template <
-  typename T,
+  typename T = double,
   typename Container,
   std::enable_if_t<has_iterator_support_v<Container> && has_contained_type_nothrow_convertible_to_v<Container, T>,
                    bool> = true>
-void minmax_scale(minmax_scale_ctx_t<T>& ctx, const Container& v, T lower, T upper) {
+constexpr void minmax_scale(minmax_scale_ctx_t<T>& ctx, const Container& v, T lower, T upper) {
     const auto n = v.size();
     auto&      y = ctx.result;
-    if (y.size() != n) {
+    if (y.size() != n) [[unlikely]] {
         y.resize(n);
     }
-    if constexpr (std::is_same_v<decltype(ctx.result), Container>) {
+    if constexpr (std::is_nothrow_assignable_v<decltype(ctx.result), Container>) {
         y = v;
     } else {
+        ENSURE_TRUE(y.size() == n);
         std::copy(v.begin(), v.end(), y.begin());
     }
     minmax_scale(y, lower, upper);
@@ -468,35 +485,41 @@ template <typename T = double> struct mtf_ctx_t {
     std::vector<size_t> shape;
 };
 
+// MARK: Markov Transition Field
 template <typename T = double,
+          typename P = double,
           typename Container,
           std::enable_if_t<has_size_method_with_size_t_v<Container> && has_index_access_operator_v<Container> &&
                              has_contained_type_nothrow_convertible_to_v<Container, T>,
                            bool> = true>
-void mtf(mtf_ctx_t<T>& ctx, const Container& ts, size_t n_bins = 16) {
+void mtf(mtf_ctx_t<T>& ctx, const Container& x, size_t n_bins = 16) {
     auto& ctx_minmax_ctx = ctx.minmax_ctx;
-    minmax_scale(ctx_minmax_ctx, ts, static_cast<T>(0.0), static_cast<T>(1.0));
-    const auto& normalized = ctx_minmax_ctx.result;
+    minmax_scale<T>(ctx_minmax_ctx, x, static_cast<T>(0.0), static_cast<T>(1.0));
+    const auto& norm = ctx_minmax_ctx.result;
 
     auto& bins = ctx.bins;
-    if (bins.size() != n_bins) {
+    if (bins.size() != n_bins) [[unlikely]] {
         bins.resize(n_bins);
-        std::generate(bins.begin(), bins.end(), [space = n_bins - 1, n = 0]() mutable {
+        auto space = static_cast<P>(n_bins) - 1.0;
+        if (std::abs(space) < EPS) [[unlikely]] {
+            space = EPS;
+        }
+        std::generate(bins.begin(), bins.end(), [space, n = 0]() mutable {
             return static_cast<T>(n++) * static_cast<T>(1.0) / static_cast<T>(space);
         });
     }
+
     auto&      digitize = ctx.digitize;
-    const auto ns       = normalized.size();
-    if (digitize.size() != ns) {
+    const auto ns       = norm.size();
+    if (digitize.size() != ns) [[unlikely]] {
         digitize.resize(ns);
     }
+
     {
-#ifdef ENABLE_ASSERT
-        assert(digitize.size() == ns);
-        assert(bins.size() == n_bins);
-#endif
+        ENSURE_TRUE(digitize.size() == ns);
+        ENSURE_TRUE(bins.size() == n_bins);
         for (size_t i = 0; i < ns; ++i) {
-            const auto ni  = normalized[i];
+            const auto ni  = norm[i];
             auto       idx = n_bins - 1;
             for (size_t j = 0; j < n_bins; ++j) {
                 if (ni < bins[j]) {
@@ -508,10 +531,10 @@ void mtf(mtf_ctx_t<T>& ctx, const Container& ts, size_t n_bins = 16) {
         }
     }
 
-    const auto tms               = n_bins * n_bins;
+    const auto ntm               = n_bins * n_bins;
     auto&      transition_matrix = ctx.transition_matrix;
-    if (transition_matrix.size() != n_bins) {
-        transition_matrix.resize(tms);
+    if (transition_matrix.size() != ntm) [[unlikely]] {
+        transition_matrix.resize(ntm);
         std::fill(transition_matrix.begin(), transition_matrix.end(), static_cast<T>(0.0));
     }
     {
@@ -526,13 +549,14 @@ void mtf(mtf_ctx_t<T>& ctx, const Container& ts, size_t n_bins = 16) {
     {
         const auto stride = n_bins;
         const auto size   = transition_matrix.size();
-#ifdef ENABLE_ASSERT
-        assert(size == tms);
-#endif
+        ENSURE_TRUE(size == ntm);
         for (size_t i = 0; i < size; i += stride) {
             T sum = 0.0;
             for (size_t j = 0; j < stride; ++j) {
                 sum += transition_matrix[i + j];
+            }
+            if (std::abs(sum) < EPS) [[unlikely]] {
+                sum = EPS;
             }
             for (size_t j = 0; j < stride; ++j) {
                 transition_matrix[i + j] /= sum;
@@ -544,20 +568,20 @@ void mtf(mtf_ctx_t<T>& ctx, const Container& ts, size_t n_bins = 16) {
     auto&      shape = ctx.shape;
     const auto cols  = ns;
     const auto rows  = ns;
-    const auto ys    = cols * rows;
-    if (y.size() != ys) {
-        y.resize(ys);
+    const auto ny    = cols * rows;
+    if (y.size() != ny) [[unlikely]] {
+        y.resize(ny);
         shape = {cols, rows};
     }
     {
-#ifdef ENABLE_ASSERT
-        assert(y.size() == ys);
-#endif
+        ENSURE_TRUE(y.size() == ny);
         for (size_t i = 0; i < cols; ++i) {
             const auto i_mul_cols = i * cols;
+            const auto digitize_i = digitize[i];
+
             for (size_t j = 0; j < rows; ++j) {
                 const auto idx = i_mul_cols + j;
-                y[idx]         = transition_matrix[(digitize[i] * n_bins) + digitize[j]];
+                y[idx]         = transition_matrix[(digitize_i * n_bins) + digitize[j]];
             }
         }
     }
@@ -568,20 +592,21 @@ template <typename T = double,
           std::enable_if_t<has_size_method_with_size_t_v<Container> && has_index_access_operator_v<Container> &&
                              has_contained_type_nothrow_convertible_to_v<Container, T>,
                            bool> = true>
-decltype(auto) mtf(const Container& ts, size_t n_bins = 16) {
+decltype(auto) mtf(const Container& x, size_t n_bins = 16) {
     mtf_ctx_t<T> ctx;
-    mtf(ctx, ts, n_bins);
+    mtf(ctx, x, n_bins);
     const auto r = std::move(ctx.result);
     return r;
 }
 
+// MARK: Resize
 namespace types {
 
 enum class resize_interpolation_t {
     BILINEAR,
 };
 
-}
+}  // namespace types
 
 using namespace types;
 
@@ -622,23 +647,22 @@ template <typename T = double> struct resize_ctx_t {
     std::vector<size_t> shape;
 };
 
-template <
-  typename T = double,
-  typename P = int16_t,
-  typename Q = double,
-  typename Container_1,
-  typename Container_2,
-  typename Container_3,
-  std::enable_if_t<std::is_nothrow_convertible_v<P, size_t> && std::is_floating_point_v<Q> &&
-                     is_resize_container_fine_v<Container_1, T> && is_resize_shape_container_fine_v<Container_2, P> &&
-                     is_resize_shape_container_fine_v<Container_3, P>,
-                   bool> = true>
+template <typename T = double,
+          typename P = int16_t,
+          typename Q = double,
+          typename Container_1,
+          typename Container_2,
+          typename Container_3,
+          std::enable_if_t<
+            std::is_integral_v<P> && std::is_floating_point_v<Q> && is_resize_container_fine_v<Container_1, T> &&
+              is_resize_shape_container_fine_v<Container_2, P> && is_resize_shape_container_fine_v<Container_3, P>,
+            bool> = true>
 void resize(resize_ctx_t<T>&       ctx,
             const Container_1&     m,
             const Container_2&     shape,
             const Container_3&     new_shape,
             resize_interpolation_t interpolation = resize_interpolation_t::BILINEAR) {
-    if (shape.size() != 2 || new_shape.size() != 2) {
+    if (shape.size() != 2 || new_shape.size() != 2) [[unlikely]] {
 #ifdef ENABLE_THROW
         throw std::invalid_argument("Unsupported dimensions of shape or new_shape.");
 #else
@@ -646,7 +670,7 @@ void resize(resize_ctx_t<T>&       ctx,
 #endif
     }
     for (const auto& s : shape) {
-        if (s < 2) {
+        if (s < 2) [[unlikely]] {
 #ifdef ENABLE_THROW
             throw std::invalid_argument("The shape must be greater than or equal to 2.");
 #else
@@ -657,14 +681,14 @@ void resize(resize_ctx_t<T>&       ctx,
     const auto s0        = *shape.begin();
     const auto s1        = *(std::next(shape.begin(), 1));
     const auto s0_mul_s1 = s0 * s1;
-    if (static_cast<decltype(s0_mul_s1)>(m.size()) < s0_mul_s1) {
+    if (static_cast<decltype(s0_mul_s1)>(m.size()) < s0_mul_s1) [[unlikely]] {
 #ifdef ENABLE_THROW
         throw std::invalid_argument("The size of m must be greater than or equal to the product of shape.");
 #else
         return;
 #endif
     }
-    if (s0_mul_s1 > std::numeric_limits<P>::max()) {
+    if (s0_mul_s1 > std::numeric_limits<P>::max()) [[unlikely]] {
 #ifdef ENABLE_THROW
         throw std::invalid_argument("The product of shape must be less than or equal to the maximum value of type P.");
 #else
@@ -682,12 +706,22 @@ void resize(resize_ctx_t<T>&       ctx,
         const P new_h   = static_cast<P>(*new_shape.begin());
         const Q scale_x = static_cast<Q>(w) / static_cast<Q>(new_w);
         const Q scale_y = static_cast<Q>(h) / static_cast<Q>(new_h);
-        const Q _0_5    = static_cast<Q>(0.5);
-        const T _1      = static_cast<T>(1.0);
+        const Q q_0_5   = static_cast<Q>(0.5);
+        const P p_1     = static_cast<P>(1);
+        const T t_1     = static_cast<T>(1.0);
+
+        if (new_w * new_w > std::numeric_limits<P>::max()) [[unlikely]] {
+#ifdef ENABLE_THROW
+            throw std::invalid_argument(
+              "The product of new shape must be less than or equal to the maximum value of type P.");
+#else
+            return;
+#endif
+        }
 
         auto&   t     = ctx.result;
         const P new_n = new_w * new_h;
-        if (static_cast<decltype(new_n)>(t.size()) != new_n) {
+        if (static_cast<decltype(new_n)>(t.size()) != new_n) [[unlikely]] {
             t.resize(new_n);
             ctx.shape = {static_cast<size_t>(new_h), static_cast<size_t>(new_w)};
         }
@@ -696,8 +730,8 @@ void resize(resize_ctx_t<T>&       ctx,
             const P i_mul_new_w = i * new_w;
 
             for (P j = 0; j < new_w; ++j) {
-                const Q x = (static_cast<Q>(static_cast<Q>(j) + _0_5) * scale_x) - _0_5;
-                const Q y = (static_cast<Q>(static_cast<Q>(i) + _0_5) * scale_y) - _0_5;
+                const Q x = (static_cast<Q>(static_cast<Q>(j) + q_0_5) * scale_x) - q_0_5;
+                const Q y = (static_cast<Q>(static_cast<Q>(i) + q_0_5) * scale_y) - q_0_5;
 
                 const P x0 = static_cast<P>(std::floor(x));
                 const P y0 = static_cast<P>(std::floor(y));
@@ -706,20 +740,20 @@ void resize(resize_ctx_t<T>&       ctx,
                 const P y1 = std::min(y0, h_c);
 
                 const P y1_mul_w    = y1 * w;
-                const P y1_p1_mul_w = (y1 + static_cast<P>(1)) * w;
-                const P x1_p1       = x1 + static_cast<P>(1);
+                const P y1_p1_mul_w = (y1 + p_1) * w;
+                const P x1_p1       = x1 + p_1;
 
                 const T a = m[y1_mul_w + x1];
                 const T b = m[y1_mul_w + x1_p1];
                 const T c = m[y1_p1_mul_w + x1];
                 const T d = m[y1_p1_mul_w + x1_p1];
 
-                const T xd      = x - x1;
-                const T yd      = y - y1;
-                const T _1_s_xd = _1 - xd;
-                const T _1_s_yd = _1 - yd;
+                const T xd       = x - x1;
+                const T yd       = y - y1;
+                const T t_1_s_xd = t_1 - xd;
+                const T t_1_s_yd = t_1 - yd;
 
-                const T p = (a * _1_s_xd * _1_s_yd) + (b * xd * _1_s_yd) + (c * _1_s_xd * yd) + (d * xd * yd);
+                const T p = (a * t_1_s_xd * t_1_s_yd) + (b * xd * t_1_s_yd) + (c * t_1_s_xd * yd) + (d * xd * yd);
 
                 t[i_mul_new_w + j] = p;
             }
@@ -735,17 +769,16 @@ void resize(resize_ctx_t<T>&       ctx,
     }
 }
 
-template <
-  typename T = double,
-  typename P = int16_t,
-  typename Q = double,
-  typename Container_1,
-  typename Container_2,
-  typename Container_3,
-  std::enable_if_t<std::is_nothrow_convertible_v<P, size_t> && std::is_floating_point_v<Q> &&
-                     is_resize_container_fine_v<Container_1, T> && is_resize_shape_container_fine_v<Container_2, P> &&
-                     is_resize_shape_container_fine_v<Container_3, P>,
-                   bool> = true>
+template <typename T = double,
+          typename P = int16_t,
+          typename Q = double,
+          typename Container_1,
+          typename Container_2,
+          typename Container_3,
+          std::enable_if_t<
+            std::is_integral_v<P> && std::is_floating_point_v<Q> && is_resize_container_fine_v<Container_1, T> &&
+              is_resize_shape_container_fine_v<Container_2, P> && is_resize_shape_container_fine_v<Container_3, P>,
+            bool> = true>
 decltype(auto) resize(const Container_1&     m,
                       const Container_2&     shape,
                       const Container_3&     new_shape,
@@ -756,6 +789,7 @@ decltype(auto) resize(const Container_1&     m,
     return r;
 }
 
+// MARK: PSNR
 namespace traits {
 
 template <typename Container, typename T, typename = std::void_t<>> struct is_psnr_container_fine : std::false_type {};
@@ -782,14 +816,14 @@ template <typename T = double,
 decltype(auto) psnr(const Container& target, const Container& preds) {
     const auto n_target = target.size();
     const auto n_preds  = preds.size();
-    if (n_target != n_preds) {
+    if (n_target != n_preds) [[unlikely]] {
 #ifdef ENABLE_THROW
         throw std::invalid_argument("The size of target and preds must be equal.");
 #else
         return std::numeric_limits<T>::infinity();
 #endif
     }
-    if (n_target == 0) {
+    if (n_target == 0) [[unlikely]] {
 #ifdef ENABLE_THROW
         throw std::invalid_argument("The size of target and preds must be greater than 0.");
 #else
@@ -809,7 +843,7 @@ decltype(auto) psnr(const Container& target, const Container& preds) {
             mse += diff * diff;
         }
         mse /= static_cast<T>(n_target);
-        if (mse < EPS) {
+        if (mse < EPS) [[unlikely]] {
             mse = EPS;
         }
         y = static_cast<T>(10.0) * std::log10(static_cast<T>(max * max) / mse);
@@ -818,6 +852,7 @@ decltype(auto) psnr(const Container& target, const Container& preds) {
     return y;
 }
 
+// MARK: CWT
 namespace types {
 
 enum class cwt_wavelet_t {
@@ -830,24 +865,29 @@ using namespace types;
 
 template <typename T = double, std::enable_if_t<std::is_floating_point_v<T>, bool> = true>
 decltype(auto) integrate_wavelet(cwt_wavelet_t wavelet, size_t percision = 10, T lower = -8.0, T upper = 8.0) {
-#ifdef ENABLE_ASSERT
-    assert(percision > 2);
-    assert(percision < sizeof(size_t) * 8);
-    assert(lower < upper);
+    if (percision <= 2 || percision >= sizeof(size_t) * 8) [[unlikely]] {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The percision must be greater than 2 or less than the number of bits in size_t.");
+#else
+        return std::make_pair(std::vector<T>(), std::vector<T>());
 #endif
+    }
+    if (lower >= upper) [[unlikely]] {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The lower must be less than upper.");
+#else
+        return std::make_pair(std::vector<T>(), std::vector<T>());
+#endif
+    }
 
     const size_t   n = 1 << percision;
     std::vector<T> psi(n);
     std::vector<T> x(n);
     const auto     space = upper - lower;
 
-#ifdef ENABLE_ASSERT
-    assert(psi.size() == n);
-    assert(x.size() == n);
-#endif
-
+    ENSURE_TRUE(psi.size() == n);
+    ENSURE_TRUE(x.size() == n);
     const auto n_s_1 = static_cast<T>(n - 1);
-
     switch (wavelet) {
     case cwt_wavelet_t::MORLET: {
         for (size_t i = 0; i < n; ++i) {
@@ -861,9 +901,7 @@ decltype(auto) integrate_wavelet(cwt_wavelet_t wavelet, size_t percision = 10, T
 #ifdef ENABLE_THROW
         throw std::invalid_argument("Unsupported wavelet type.");
 #else
-        std::fill(psi.begin(), psi.end(), static_cast<T>(0.0));
-        std::fill(x.begin(), x.end(), static_cast<T>(0.0));
-        return std::make_pair(std::move(psi), std::move(x));
+        return std::make_pair(std::vector<T>(), std::vector<T>());
 #endif
     }
 
@@ -913,60 +951,100 @@ template <typename T = double,
                              is_cwt_container_fine_v<Container_1, T> && is_cwt_container_fine_v<Container_2, T>,
                            bool> = true>
 void cwt(cwt_ctx_t<T>&         ctx,
-         const Container_1&    ts,
+         const Container_1&    signal,
          const Container_2&    ascending_scales,
          const std::vector<T>& wavelet_psi,
          const std::vector<T>& wavelet_x) {
     const auto n_psi = wavelet_psi.size();
     const auto n_x   = wavelet_x.size();
-#ifdef ENABLE_ASSERT
-    assert(n_psi > 2);
-    assert(n_x > 2);
-    assert(n_x <= n_psi);
+
+    if (n_psi <= 2) [[unlikely]] {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The size of wavelet_psi must be greater than 2.");
+#else
+        return;
 #endif
+    }
+    if (n_x <= 2) [[unlikely]] {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The size of wavelet_x must be greater than 2.");
+#else
+        return;
+#endif
+    }
+    if (n_x > n_psi) [[unlikely]] {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The size of wavelet_x must be less than or equal to wavelet_psi.");
+#else
+        return;
+#endif
+    }
+
     const auto x_0      = wavelet_x[0];
     const auto x_1      = wavelet_x[1];
     const auto x_n      = wavelet_x[n_x - 1];
     const auto x_step   = x_1 - x_0;
     const auto x_range  = x_n - x_0;
     const auto n_scales = ascending_scales.size();
-#ifdef ENABLE_ASSERT
-    assert(x_step > EPS);
-    assert(x_range > EPS);
-    assert(n_scales > 0);
+
+    if (std::abs(x_step) <= EPS) [[unlikely]] {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The step of wavelet_x must be greater than 0.");
+#else
+        return;
 #endif
+    }
+    if (std::abs(x_range) <= EPS) [[unlikely]] {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The range of wavelet_x must be greater than 0.");
+#else
+        return;
+#endif
+    }
+    if (n_scales == 0) [[unlikely]] {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The size of ascending_scales must be greater than 0.");
+#else
+        return;
+#endif
+    }
+
     const auto max_scale         = ascending_scales[n_scales - 1];
     const auto n_psi_indices_max = static_cast<size_t>(std::ceil((max_scale * x_range) + 1.0));
     auto&      psi_arange        = ctx.psi_arange;
-    if (psi_arange.size() != n_psi_indices_max) {
+    if (psi_arange.size() != n_psi_indices_max) [[unlikely]] {
         psi_arange.resize(n_psi_indices_max);
         std::iota(psi_arange.begin(), psi_arange.end(), 0);
     }
 
     auto& psi_indices = ctx.psi_indices;
-    if (psi_indices.size() != n_psi_indices_max) {
+    if (psi_indices.size() != n_psi_indices_max) [[unlikely]] {
         psi_indices.resize(n_psi_indices_max);
     }
 
-    const auto n_ts = ts.size();
-#ifdef ENABLE_ASSERT
-    assert(n_ts > 0);
+    const auto n_signal = signal.size();
+    if (n_signal == 0) [[unlikely]] {
+#ifdef ENABLE_THROW
+        throw std::invalid_argument("The size of signal must be greater than 0.");
+#else
+        ctx.result.clear();
+        return;
 #endif
-    const auto n_result = n_scales * n_ts;
-    auto&      result   = ctx.result;
-    if (result.size() != n_result) {
-        result.resize(n_result);
-        ctx.shape = {n_scales, n_ts};
     }
-    const auto n_coefficients = n_ts + n_psi_indices_max - 1;
+
+    const auto n_result = n_scales * n_signal;
+    auto&      result   = ctx.result;
+    if (result.size() != n_result) [[unlikely]] {
+        result.resize(n_result);
+        ctx.shape = {n_scales, n_signal};
+    }
+    const auto n_coefficients = n_signal + n_psi_indices_max - 1;
     auto&      coefficients   = ctx.coefficients;
-    if (coefficients.size() != n_coefficients) {
+    if (coefficients.size() != n_coefficients) [[unlikely]] {
         coefficients.resize(n_coefficients);
     }
     {
-#ifdef ENABLE_ASSERT
-        assert(ascending_scales.size() >= n_scales);
-#endif
+        ENSURE_TRUE(ascending_scales.size() >= n_scales);
         size_t result_pos = 0;
         for (size_t i = 0; i < n_scales; ++i) {
             const auto scale           = static_cast<P>(ascending_scales[i]);
@@ -974,9 +1052,7 @@ void cwt(cwt_ctx_t<T>&         ctx,
 
             {
                 const auto psi_arange_end = static_cast<size_t>(std::ceil(scale * x_range)) + 1;
-#ifdef ENABLE_ASSERT
-                assert(psi_arange.size() >= psi_arange_end);
-#endif
+                ENSURE_TRUE(psi_arange.size() >= psi_arange_end);
                 const auto scale_mul_step = std::max(scale * x_step, EPS);
                 for (size_t j = 0; j < psi_arange_end; ++j) {
                     const auto idx = static_cast<size_t>(std::floor(static_cast<P>(psi_arange[j]) / scale_mul_step));
@@ -986,41 +1062,37 @@ void cwt(cwt_ctx_t<T>&         ctx,
                     psi_indices[len_psi_indices++] = idx;
                 }
             }
-            if (len_psi_indices < 1) {
+            if (len_psi_indices < 1) [[unlikely]] {
 #ifdef ENABLE_THROW
                 throw std::runtime_error("Selected scale is too large.");
 #else
                 auto it = result.begin() + result_pos;
-                std::fill(it, it + n_ts, static_cast<T>(0.0));
-                result_pos += n_ts;
+                std::fill(it, it + n_signal, static_cast<T>(0.0));
+                result_pos += n_signal;
                 return;
 #endif
             }
 
             const auto len_psi_idx_s_1 = len_psi_indices - 1;
-            const auto len_conv        = n_ts + len_psi_idx_s_1;
-#ifdef ENABLE_ASSERT
-            assert(len_conv > 1);
-            assert(coefficients.size() >= len_conv);
-#endif
+            const auto len_conv        = n_signal + len_psi_idx_s_1;
+            ENSURE_TRUE(len_conv > 1);
+            ENSURE_TRUE(coefficients.size() >= len_conv);
             for (size_t j = 0; j < len_conv; ++j) {
                 coefficients[j] = static_cast<T>(0.0);
             }
-            for (size_t j = 0; j < n_ts; ++j) {
-                const auto ts_j = ts[j];
+            for (size_t j = 0; j < n_signal; ++j) {
+                const auto signal_j = signal[j];
                 for (size_t k = 0; k < len_psi_indices; ++k) {
                     const auto  psi_indices_rk = len_psi_idx_s_1 - k;
                     const auto  psi_index_rk   = psi_indices[psi_indices_rk];
                     const auto& psi_rk         = wavelet_psi[psi_index_rk];
-                    coefficients[j + k] += ts_j * psi_rk;
+                    coefficients[j + k] += signal_j * psi_rk;
                 }
             }
 
             const auto len_diff = len_conv - 1;
-#ifdef ENABLE_ASSERT
-            assert(len_diff > 1);
-            assert(coefficients.size() >= len_diff);
-#endif
+            ENSURE_TRUE(len_diff > 1);
+            ENSURE_TRUE(coefficients.size() >= len_diff);
             {
                 const auto negtive_sqrt_scale = -std::sqrt(scale);
                 for (size_t j = 1; j < len_conv; ++j) {
@@ -1031,21 +1103,24 @@ void cwt(cwt_ctx_t<T>&         ctx,
                 }
             }
 
-            const auto d = static_cast<P>(len_diff - n_ts) / static_cast<P>(2.0);
-            if (d < EPS) {
+            ENSURE_TRUE(len_diff >= n_signal);
+            const auto d = static_cast<P>(len_diff - n_signal) / static_cast<P>(2.0);
+            if (d < EPS) [[unlikely]] {
 #ifdef ENABLE_THROW
                 throw std::runtime_error("Selected scale is too small.");
 #else
                 auto it = result.begin() + result_pos;
-                std::fill(it, it + n_ts, static_cast<T>(0.0));
-                result_pos += n_ts;
+                std::fill(it, it + n_signal, static_cast<T>(0.0));
+                result_pos += n_signal;
                 return;
 #endif
             }
             const size_t start   = static_cast<size_t>(std::floor(d));
-            const size_t end_max = start + n_ts;
+            const size_t end_max = start + n_signal;
             size_t       end     = len_diff - static_cast<size_t>(std::ceil(d));
-            end                  = std::min(end_max, end);
+            if (end > end_max) [[unlikely]] {
+                end = end_max;
+            }
             for (size_t j = start; j < end; ++j) {
                 result[result_pos++] = coefficients[j];
             }
@@ -1063,16 +1138,17 @@ template <typename T = double,
           std::enable_if_t<std::is_floating_point_v<T> && std::is_floating_point_v<P> &&
                              is_cwt_container_fine_v<Container_1, T> && is_cwt_container_fine_v<Container_2, T>,
                            bool> = true>
-decltype(auto) cwt(const Container_1&    ts,
+decltype(auto) cwt(const Container_1&    signal,
                    const Container_2&    ascending_scales,
                    const std::vector<T>& wavelet_psi,
                    const std::vector<T>& wavelet_x) {
     cwt_ctx_t<T> ctx;
-    cwt<T, P>(ctx, ts, ascending_scales, wavelet_psi, wavelet_x);
+    cwt<T, P>(ctx, signal, ascending_scales, wavelet_psi, wavelet_x);
     const auto r = std::move(ctx.result);
     return r;
 }
 
+// MARK: Tests
 namespace tests {
 
 #ifdef BUILD_TESTS
