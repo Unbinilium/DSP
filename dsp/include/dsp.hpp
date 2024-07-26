@@ -645,12 +645,12 @@ void mtf(mtf_ctx_t<T>& ctx, const Container& x, size_t n_bins = 16) {
 
         ENSURE_TRUE(y.size() == n_y);
         for (size_t i = 0; i < cols; ++i) {
-            const auto i_mul_cols = i * cols;
-            const auto digitize_i = digitize[i];
+            const auto i_mul_cols            = i * cols;
+            const auto digitize_i_mul_n_bins = digitize[i] * n_bins;
 
             for (size_t j = 0; j < rows; ++j) {
                 const auto idx = i_mul_cols + j;
-                y[idx]         = transition_matrix[(digitize_i * n_bins) + digitize[j]];
+                y[idx]         = transition_matrix[digitize_i_mul_n_bins + digitize[j]];
             }
         }
     }
