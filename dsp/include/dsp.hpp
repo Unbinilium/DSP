@@ -653,12 +653,6 @@ void mtf(mtf_ctx_t<T>& ctx, const Container& x, size_t n_bins = 16) {
                 y[idx]         = transition_matrix[(digitize_i * n_bins) + digitize[j]];
             }
         }
-
-        // size_t i = 0;
-        // for (const auto& v : ctx.result) {
-        //     std::cout << v << "\t";
-        //     if (++i % 20 == 0) std::cout << "\n";
-        // }
     }
 }
 
