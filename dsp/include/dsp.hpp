@@ -347,14 +347,12 @@ void lfilter(lfilter_ctx_t<T>&  ctx,
     auto&      y  = ctx.result;
     if (y.size() != nx) [[unlikely]] {
         y.resize(nx);
-        std::fill(y.begin(), y.end(), static_cast<T>(0.0));
     }
 
     {
         const auto nn = numerators.size();
         const auto nd = denominators.size();
         ENSURE_TRUE(y.size() == nx);
-        std::fill(y.begin(), y.end(), static_cast<T>(0.0));
         for (size_t i = 0; i < nx; ++i) {
             const auto i_p1   = i + 1;
             const auto nn_end = std::min(nn, i_p1);
@@ -364,7 +362,7 @@ void lfilter(lfilter_ctx_t<T>&  ctx,
             for (size_t j = 0; j < nn_end; ++j) {
                 sum += static_cast<T>(numerators[j] * x[i - j]);
             }
-            y_i += sum;
+            y_i = sum;
             for (size_t j = 1; j < nd_end; ++j) {
                 y_i -= denominators[j] * y[i - j];
             }
