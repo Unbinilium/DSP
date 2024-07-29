@@ -354,6 +354,7 @@ void lfilter(lfilter_ctx_t<T>&  ctx,
         const auto nn = numerators.size();
         const auto nd = denominators.size();
         ENSURE_TRUE(y.size() == nx);
+        std::fill(y.begin(), y.end(), static_cast<T>(0.0));
         for (size_t i = 0; i < nx; ++i) {
             const auto i_p1   = i + 1;
             const auto nn_end = std::min(nn, i_p1);
@@ -603,9 +604,9 @@ void mtf(mtf_ctx_t<T>& ctx, const Container& x, size_t n_bins = 16) {
     auto&      transition_matrix = ctx.transition_matrix;
     if (transition_matrix.size() != n_tm) [[unlikely]] {
         transition_matrix.resize(n_tm);
-        std::fill(transition_matrix.begin(), transition_matrix.end(), static_cast<T>(0.0));
     }
     {
+        std::fill(transition_matrix.begin(), transition_matrix.end(), static_cast<T>(0.0));
         const size_t start = 1;
         const size_t end   = digitize.size();
         for (size_t p = start; p < end; ++p) {
