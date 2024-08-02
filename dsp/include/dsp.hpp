@@ -1137,15 +1137,17 @@ void cwt(cwt_ctx_t<T, Container_1>& ctx,
             const auto scale           = static_cast<P>(ctx.scales[i]);
             size_t     len_psi_indices = 0;
 
-            const auto psi_arange_end =
-              std::min(static_cast<size_t>(std::ceil(scale * static_cast<P>(x_range))) + 1, psi_arange.size());
-            const auto scale_mul_step = std::max(scale * static_cast<P>(x_step), static_cast<P>(EPS));
-            for (size_t j = 0; j < psi_arange_end; ++j) {
-                const auto idx = static_cast<size_t>(std::floor(static_cast<P>(psi_arange[j]) / scale_mul_step));
-                if (idx >= n_psi) [[unlikely]] {
-                    break;
+            {
+                const auto psi_arange_end =
+                  std::min(static_cast<size_t>(std::ceil(scale * static_cast<P>(x_range))) + 1, psi_arange.size());
+                const auto scale_mul_step = std::max(scale * static_cast<P>(x_step), static_cast<P>(EPS));
+                for (size_t j = 0; j < psi_arange_end; ++j) {
+                    const auto idx = static_cast<size_t>(std::floor(static_cast<P>(psi_arange[j]) / scale_mul_step));
+                    if (idx >= n_psi) [[unlikely]] {
+                        break;
+                    }
+                    psi_indices[len_psi_indices++] = idx;
                 }
-                psi_indices[len_psi_indices++] = idx;
             }
 
             if (len_psi_indices < 1) [[unlikely]] {
